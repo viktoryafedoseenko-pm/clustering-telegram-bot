@@ -23,6 +23,7 @@ from sentence_transformers import SentenceTransformer
 from umap import UMAP
 from hdbscan import HDBSCAN
 from sklearn.feature_extraction.text import CountVectorizer  # +++
+import pymorphy2
 
 # Расширенный список стоп-слов
 HTML_STOP_WORDS = {
@@ -36,14 +37,10 @@ HTML_STOP_WORDS = {
     'display', 'position', 'float', 'clear', 'overflow', 'zindex', 'opacity',
     'img', 'alt', 'title', 'css', 'html', 'body', 'head', 'meta', 'link',
     'ffffff', 'cellspacing', 'cellpadding', 'helvetica', 'arial', 'verdana',
-    'usedesk', 'normal', 'variant', 'rgb', 'rgba', 'sans', 'serif',
-    
-    # Новые HTML/Email артефакты
+    'usedesk', 'normal', 'variant', 'rgb', 'rgba', 'sans', 'serif', 'blockquote',
     'white', 'space', 'pre', 'wrap', 'text', 'family', 'line', 'height',
     'amp', 'comment_id', 'answer', 'email', 'mailto', 'http', 'https',
-    'yandex', 'practicum', 'mail', 'support', 'usedesk', 'ticket',
-    
-    # Числовые паттерны
+    'yandex', 'practicum', 'mail', 'support', 'usedesk', 'ticket', 'weight', 'start transform',
     '255', '000', '111', '222', '333', '444', '555', '666', '777', '888', '999',
 }
 
@@ -55,6 +52,8 @@ COMMON_RUSSIAN_STOP_WORDS = {
     'меня', 'тебя', 'его', 'её', 'нас', 'вас', 'их', 'мой', 'твой', 'свой', 'наш',
     'ваш', 'ихний', 'кто', 'чего', 'чем', 'кому', 'чему', 'кого', 'ещё', 'уже',
     'очень', 'более', 'самый', 'такой', 'весь', 'который', 'какой', 'тут', 'тот',
+    
+    # Вежливые обращения (они во всех отзывах)
     'будет', 'было', 'были', 'буду', 'будем', 'будете', 'будут',
 }
 
@@ -67,6 +66,7 @@ def clean_html(text: str) -> str:
     if not isinstance(text, str):
         return ""
     
+
     text = re.sub(r'<[^>]+>', ' ', text)
     text = re.sub(r'&[a-z]+;', ' ', text)
     text = re.sub(r'&#\d+;', ' ', text)
@@ -79,7 +79,8 @@ def clean_html(text: str) -> str:
     text = re.sub(r'\b\d{3}\b', '', text)
     text = re.sub(r'\b\w*amp\w*\b', '', text, flags=re.I)
     text = re.sub(r'\b\w*comment_id\w*\b', '', text, flags=re.I)
-    text = re.sub(r'\b\w*answer\w*\b', '', text, flags=re.I)
+    text = re.sub(r'\b\w*answer\w*\b', '', text, flags=re.I)    
+    text = re.sub(r'\b\w*px\w*\b', '', text, flags=re.I)
     text = re.sub(r'\bpracticum\s+yandex\b', '', text, flags=re.I)
     text = re.sub(r'\bhttps?\s+\w+\b', '', text, flags=re.I)
     text = re.sub(r'\bwhite\s+space\b', '', text, flags=re.I)
@@ -104,13 +105,13 @@ def preprocess_text(text: str) -> str:
     for w in text.split():
         # Расширенная фильтрация
         if (len(w) > 2 and 
-            len(w) < 20 and 
+            len(w) < 20 and  # ← добавили: не больше 20 символов
             w not in STOP_WORDS and
             not w.isdigit() and
             not re.match(r'^\d+$', w) and
-            not re.match(r'^\d+[a-z]+$', w, re.I) and 
-            not re.match(r'^[a-z]+\d+$', w, re.I) and 
-            not any(bad in w for bad in ['amp', 'comment', 'answer', 'mailto'])):
+            not re.match(r'^\d+[a-z]+$', w, re.I) and  # 3px, 255rgb
+            not re.match(r'^[a-z]+\d+$', w, re.I) and  # comment_id, answer2
+            not any(bad in w for bad in ['amp', 'comment', 'answer', 'mailto'])):  # подстроки
             
             # Лемматизация только русских слов
             if re.match(r'^[а-яё]+$', w):
@@ -216,18 +217,18 @@ def clusterize_texts(file_path: str, progress_callback=None):
     sync_log("🤖 Загрузка модели...")
     model = SentenceTransformer("paraphrase-multilingual-MiniLM-L12-v2")
 
-    #vectorizer с фильтрацией стоп-слов +++
+    # +++ Фильтрация стоп-слов +++
     vectorizer_model = CountVectorizer(
         ngram_range=(1, 2),
         stop_words=list(STOP_WORDS),
-        min_df=3,  # слово должно встречаться минимум в 2 документах
-        max_df=0.6  # игнорируем слова, встречающиеся в >70% документов
+        min_df=3,  # слово должно встречаться минимум в 3 документах
+        max_df=0.6  # игнорируем слова, встречающиеся в >60% документов
     )
 
     # --- Параметры для ~1000 текстов ---
     # Цель: получить 10-20 кластеров
-    min_cluster_size = max(10, int(n_unique * 0.015))  # ~20 текстов (было 99!)
-    min_samples = max(5, int(n_unique * 0.01))  # ~10 текстов
+    min_cluster_size = max(8, int(n_unique * 0.005))  
+    min_samples = max(4, int(n_unique * 0.01))  # ~10 текстов
     
     n_neighbors = min(30, max(15, n_unique // 50))  # ~20 соседей
     n_components = 10  # больше компонент для UMAP
@@ -253,7 +254,7 @@ def clusterize_texts(file_path: str, progress_callback=None):
         embedding_model=model,
         umap_model=umap_model,
         hdbscan_model=hdbscan_model,
-        vectorizer_model=vectorizer_model,
+        vectorizer_model=vectorizer_model,  # +++ ДОБАВЛЕНО +++
         language="multilingual",
         calculate_probabilities=False,
         verbose=False,
