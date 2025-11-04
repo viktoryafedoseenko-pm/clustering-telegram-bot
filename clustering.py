@@ -23,7 +23,6 @@ from sentence_transformers import SentenceTransformer
 from umap import UMAP
 from hdbscan import HDBSCAN
 from sklearn.feature_extraction.text import CountVectorizer  # +++
-import pymorphy2
 
 # Расширенный список стоп-слов
 HTML_STOP_WORDS = {
@@ -56,8 +55,6 @@ COMMON_RUSSIAN_STOP_WORDS = {
     'меня', 'тебя', 'его', 'её', 'нас', 'вас', 'их', 'мой', 'твой', 'свой', 'наш',
     'ваш', 'ихний', 'кто', 'чего', 'чем', 'кому', 'чему', 'кого', 'ещё', 'уже',
     'очень', 'более', 'самый', 'такой', 'весь', 'который', 'какой', 'тут', 'тот',
-    
-    # Вежливые обращения (они во всех отзывах)
     'будет', 'было', 'были', 'буду', 'будем', 'будете', 'будут',
 }
 
@@ -70,40 +67,24 @@ def clean_html(text: str) -> str:
     if not isinstance(text, str):
         return ""
     
-    # Удаляем всё между < и >
     text = re.sub(r'<[^>]+>', ' ', text)
-    # HTML-сущности
     text = re.sub(r'&[a-z]+;', ' ', text)
     text = re.sub(r'&#\d+;', ' ', text)
-    # CSS-свойства
     text = re.sub(r'[a-z\-]+\s*:\s*[^;"]+;?', ' ', text, flags=re.IGNORECASE)
-    # HTML-атрибуты
     text = re.sub(r'\w+\s*=\s*["\'][^"\']*["\']', ' ', text)
-    # Числа с единицами
     text = re.sub(r'\b\d+[a-z%]+\b', ' ', text, flags=re.IGNORECASE)
-    # Hex-коды цветов
     text = re.sub(r'#[0-9a-f]{3,6}\b', ' ', text, flags=re.IGNORECASE)
-    # CSS/HTML ключевые слова
     text = re.sub(r'\b(rgb|rgba|url|var|calc|auto|inherit|initial|unset)\b', ' ', text, flags=re.IGNORECASE)
-    # Удаляем паттерны вида "255 255", "000 3px", "answer amp"
-    text = re.sub(r'\b(\d+)\s+\1\b', '', text)  # повторяющиеся числа
-    text = re.sub(r'\b\d{3}\b', '', text)  # трёхзначные числа (255, 000)
-    
-    # Удаляем составные слова с amp, id, comment
+    text = re.sub(r'\b(\d+)\s+\1\b', '', text) 
+    text = re.sub(r'\b\d{3}\b', '', text)
     text = re.sub(r'\b\w*amp\w*\b', '', text, flags=re.I)
     text = re.sub(r'\b\w*comment_id\w*\b', '', text, flags=re.I)
     text = re.sub(r'\b\w*answer\w*\b', '', text, flags=re.I)
-    
-    # Удаляем фрагменты URL
     text = re.sub(r'\bpracticum\s+yandex\b', '', text, flags=re.I)
     text = re.sub(r'\bhttps?\s+\w+\b', '', text, flags=re.I)
-    
-    # Удаляем CSS-паттерны
     text = re.sub(r'\bwhite\s+space\b', '', text, flags=re.I)
     text = re.sub(r'\bspace\s+pre\b', '', text, flags=re.I)
     text = re.sub(r'\btext\s+(family|align|decoration)\b', '', text, flags=re.I)
-    
-    # Финальная очистка множественных пробелов
     text = re.sub(r'\s+', ' ', text).strip()
 
     return text
@@ -123,13 +104,13 @@ def preprocess_text(text: str) -> str:
     for w in text.split():
         # Расширенная фильтрация
         if (len(w) > 2 and 
-            len(w) < 20 and  # ← добавили: не больше 20 символов
+            len(w) < 20 and 
             w not in STOP_WORDS and
             not w.isdigit() and
             not re.match(r'^\d+$', w) and
-            not re.match(r'^\d+[a-z]+$', w, re.I) and  # 3px, 255rgb
-            not re.match(r'^[a-z]+\d+$', w, re.I) and  # comment_id, answer2
-            not any(bad in w for bad in ['amp', 'comment', 'answer', 'mailto'])):  # подстроки
+            not re.match(r'^\d+[a-z]+$', w, re.I) and 
+            not re.match(r'^[a-z]+\d+$', w, re.I) and 
+            not any(bad in w for bad in ['amp', 'comment', 'answer', 'mailto'])):
             
             # Лемматизация только русских слов
             if re.match(r'^[а-яё]+$', w):
@@ -235,7 +216,7 @@ def clusterize_texts(file_path: str, progress_callback=None):
     sync_log("🤖 Загрузка модели...")
     model = SentenceTransformer("paraphrase-multilingual-MiniLM-L12-v2")
 
-    # +++ КЛЮЧЕВОЕ ИЗМЕНЕНИЕ: добавляем vectorizer с фильтрацией стоп-слов +++
+    #vectorizer с фильтрацией стоп-слов +++
     vectorizer_model = CountVectorizer(
         ngram_range=(1, 2),
         stop_words=list(STOP_WORDS),
@@ -272,7 +253,7 @@ def clusterize_texts(file_path: str, progress_callback=None):
         embedding_model=model,
         umap_model=umap_model,
         hdbscan_model=hdbscan_model,
-        vectorizer_model=vectorizer_model,  # +++ ДОБАВЛЕНО +++
+        vectorizer_model=vectorizer_model,
         language="multilingual",
         calculate_probabilities=False,
         verbose=False,
