@@ -37,14 +37,10 @@ HTML_STOP_WORDS = {
     'display', 'position', 'float', 'clear', 'overflow', 'zindex', 'opacity',
     'img', 'alt', 'title', 'css', 'html', 'body', 'head', 'meta', 'link',
     'ffffff', 'cellspacing', 'cellpadding', 'helvetica', 'arial', 'verdana',
-    'usedesk', 'normal', 'variant', 'rgb', 'rgba', 'sans', 'serif',
-    
-    # Новые HTML/Email артефакты
+    'usedesk', 'normal', 'variant', 'rgb', 'rgba', 'sans', 'serif', 'blockquote',
     'white', 'space', 'pre', 'wrap', 'text', 'family', 'line', 'height',
     'amp', 'comment_id', 'answer', 'email', 'mailto', 'http', 'https',
-    'yandex', 'practicum', 'mail', 'support', 'usedesk', 'ticket',
-    
-    # Числовые паттерны
+    'yandex', 'practicum', 'mail', 'support', 'usedesk', 'ticket', 'weight', 'start transform',
     '255', '000', '111', '222', '333', '444', '555', '666', '777', '888', '999',
 }
 
@@ -70,40 +66,26 @@ def clean_html(text: str) -> str:
     if not isinstance(text, str):
         return ""
     
-    # Удаляем всё между < и >
+
     text = re.sub(r'<[^>]+>', ' ', text)
-    # HTML-сущности
     text = re.sub(r'&[a-z]+;', ' ', text)
     text = re.sub(r'&#\d+;', ' ', text)
-    # CSS-свойства
     text = re.sub(r'[a-z\-]+\s*:\s*[^;"]+;?', ' ', text, flags=re.IGNORECASE)
-    # HTML-атрибуты
     text = re.sub(r'\w+\s*=\s*["\'][^"\']*["\']', ' ', text)
-    # Числа с единицами
     text = re.sub(r'\b\d+[a-z%]+\b', ' ', text, flags=re.IGNORECASE)
-    # Hex-коды цветов
     text = re.sub(r'#[0-9a-f]{3,6}\b', ' ', text, flags=re.IGNORECASE)
-    # CSS/HTML ключевые слова
     text = re.sub(r'\b(rgb|rgba|url|var|calc|auto|inherit|initial|unset)\b', ' ', text, flags=re.IGNORECASE)
-    # Удаляем паттерны вида "255 255", "000 3px", "answer amp"
-    text = re.sub(r'\b(\d+)\s+\1\b', '', text)  # повторяющиеся числа
-    text = re.sub(r'\b\d{3}\b', '', text)  # трёхзначные числа (255, 000)
-    
-    # Удаляем составные слова с amp, id, comment
+    text = re.sub(r'\b(\d+)\s+\1\b', '', text) 
+    text = re.sub(r'\b\d{3}\b', '', text)
     text = re.sub(r'\b\w*amp\w*\b', '', text, flags=re.I)
     text = re.sub(r'\b\w*comment_id\w*\b', '', text, flags=re.I)
-    text = re.sub(r'\b\w*answer\w*\b', '', text, flags=re.I)
-    
-    # Удаляем фрагменты URL
+    text = re.sub(r'\b\w*answer\w*\b', '', text, flags=re.I)    
+    text = re.sub(r'\b\w*px\w*\b', '', text, flags=re.I)
     text = re.sub(r'\bpracticum\s+yandex\b', '', text, flags=re.I)
     text = re.sub(r'\bhttps?\s+\w+\b', '', text, flags=re.I)
-    
-    # Удаляем CSS-паттерны
     text = re.sub(r'\bwhite\s+space\b', '', text, flags=re.I)
     text = re.sub(r'\bspace\s+pre\b', '', text, flags=re.I)
     text = re.sub(r'\btext\s+(family|align|decoration)\b', '', text, flags=re.I)
-    
-    # Финальная очистка множественных пробелов
     text = re.sub(r'\s+', ' ', text).strip()
 
     return text
@@ -235,18 +217,18 @@ def clusterize_texts(file_path: str, progress_callback=None):
     sync_log("🤖 Загрузка модели...")
     model = SentenceTransformer("paraphrase-multilingual-MiniLM-L12-v2")
 
-    # +++ КЛЮЧЕВОЕ ИЗМЕНЕНИЕ: добавляем vectorizer с фильтрацией стоп-слов +++
+    # +++ Фильтрация стоп-слов +++
     vectorizer_model = CountVectorizer(
         ngram_range=(1, 2),
         stop_words=list(STOP_WORDS),
-        min_df=3,  # слово должно встречаться минимум в 2 документах
-        max_df=0.6  # игнорируем слова, встречающиеся в >70% документов
+        min_df=3,  # слово должно встречаться минимум в 3 документах
+        max_df=0.6  # игнорируем слова, встречающиеся в >60% документов
     )
 
     # --- Параметры для ~1000 текстов ---
     # Цель: получить 10-20 кластеров
-    min_cluster_size = max(10, int(n_unique * 0.015))  # ~20 текстов (было 99!)
-    min_samples = max(5, int(n_unique * 0.01))  # ~10 текстов
+    min_cluster_size = max(8, int(n_unique * 0.005))  
+    min_samples = max(4, int(n_unique * 0.01))  # ~10 текстов
     
     n_neighbors = min(30, max(15, n_unique // 50))  # ~20 соседей
     n_components = 10  # больше компонент для UMAP
