@@ -271,6 +271,9 @@ def clusterize_texts(file_path: str, progress_callback=None):
     # --- Названия (с дополнительной фильтрацией) ---
     sync_log("📝 Генерация названий...")
     info = topic_model.get_topic_info()
+    sync_log("🔎 Top words per topic (preview):")
+    for t in info.Topic.unique()[:10]:
+        sync_log(f"Topic {t}: {topic_model.get_topic(int(t))}")
     cluster_names = {}
     
     def get_name(t):
@@ -310,6 +313,20 @@ def clusterize_texts(file_path: str, progress_callback=None):
     # --- Метрики ---
     stats = calculate_metrics(topics, cluster_names, topic_model)
     sync_log(f"✅ {stats['n_clusters']} кластеров за {time.time()-start_time:.1f}с")
+
+     # --- Метка запуска и имя файла ---
+    import uuid, json, time
+    run_id = uuid.uuid4().hex[:8]
+    sync_log(f"🧾 Run id: {run_id} — сохраняю результат")
+    out = file_path.replace(".csv", f"_clustered_{run_id}.csv")
+    # также сохраняем краткий дамп топ-слов в отдельный файл для сравнения
+    info = topic_model.get_topic_info()  # уже есть в код
+    topics_dump = {}
+    for t in info.Topic.unique():
+        topics_dump[str(int(t))] = topic_model.get_topic(int(t)) or []
+    with open(file_path.replace(".csv", f"_topics_{run_id}.json"), "w", encoding="utf-8") as f:
+        json.dump(topics_dump, f, ensure_ascii=False, indent=2)
+    df.to_csv(out, index=False, encoding='utf-8')
 
     # --- Сохранение ---
     out = file_path.replace(".csv", "_clustered.csv")
