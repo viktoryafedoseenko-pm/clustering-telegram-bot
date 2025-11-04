@@ -27,6 +27,7 @@ import pymorphy2
 
 # Расширенный список стоп-слов
 HTML_STOP_WORDS = {
+    # HTML/CSS базовые
     'style', 'div', 'width', 'height', 'br', 'span', 'class', 'id', 'href', 'src',
     'px', 'pt', 'em', 'rem', 'color', 'background', 'font', 'size', 'border',
     'margin', 'padding', 'align', 'valign', 'center', 'left', 'right', 'justify',
@@ -34,9 +35,17 @@ HTML_STOP_WORDS = {
     'rel', 'nofollow', 'blank', 'www', 'com', 'org', 'net', 'ru', 'quot', 'strong',
     'bold', 'italic', 'underline', 'block', 'inline', 'none', 'hidden', 'visible',
     'display', 'position', 'float', 'clear', 'overflow', 'zindex', 'opacity',
-    'img', 'alt', 'title', 'css', 'html', 'body', 'head', 'meta', 'link', 
+    'img', 'alt', 'title', 'css', 'html', 'body', 'head', 'meta', 'link',
     'ffffff', 'cellspacing', 'cellpadding', 'helvetica', 'arial', 'verdana',
-    'usedesk', 'normal', 'variant', 'rgb', 'rgba', 'sans', 'serif', 'sans-serif',
+    'usedesk', 'normal', 'variant', 'rgb', 'rgba', 'sans', 'serif',
+    
+    # Новые HTML/Email артефакты
+    'white', 'space', 'pre', 'wrap', 'text', 'family', 'line', 'height',
+    'amp', 'comment_id', 'answer', 'email', 'mailto', 'http', 'https',
+    'yandex', 'practicum', 'mail', 'support', 'usedesk', 'ticket',
+    
+    # Числовые паттерны
+    '255', '000', '111', '222', '333', '444', '555', '666', '777', '888', '999',
 }
 
 COMMON_RUSSIAN_STOP_WORDS = {
@@ -46,7 +55,10 @@ COMMON_RUSSIAN_STOP_WORDS = {
     'что', 'как', 'это', 'так', 'вот', 'же', 'ли', 'бы', 'то', 'во', 'со', 'изо',
     'меня', 'тебя', 'его', 'её', 'нас', 'вас', 'их', 'мой', 'твой', 'свой', 'наш',
     'ваш', 'ихний', 'кто', 'чего', 'чем', 'кому', 'чему', 'кого', 'ещё', 'уже',
-    'очень', 'более', 'самый', 'такой', 'весь', 'который', 'какой', 'тут', 'тот'
+    'очень', 'более', 'самый', 'такой', 'весь', 'который', 'какой', 'тут', 'тот',
+    
+    # Вежливые обращения (они во всех отзывах)
+    'будет', 'было', 'были', 'буду', 'будем', 'будете', 'будут',
 }
 
 STOP_WORDS = COMMON_RUSSIAN_STOP_WORDS.union(HTML_STOP_WORDS)
@@ -73,7 +85,27 @@ def clean_html(text: str) -> str:
     text = re.sub(r'#[0-9a-f]{3,6}\b', ' ', text, flags=re.IGNORECASE)
     # CSS/HTML ключевые слова
     text = re.sub(r'\b(rgb|rgba|url|var|calc|auto|inherit|initial|unset)\b', ' ', text, flags=re.IGNORECASE)
+    # Удаляем паттерны вида "255 255", "000 3px", "answer amp"
+    text = re.sub(r'\b(\d+)\s+\1\b', '', text)  # повторяющиеся числа
+    text = re.sub(r'\b\d{3}\b', '', text)  # трёхзначные числа (255, 000)
     
+    # Удаляем составные слова с amp, id, comment
+    text = re.sub(r'\b\w*amp\w*\b', '', text, flags=re.I)
+    text = re.sub(r'\b\w*comment_id\w*\b', '', text, flags=re.I)
+    text = re.sub(r'\b\w*answer\w*\b', '', text, flags=re.I)
+    
+    # Удаляем фрагменты URL
+    text = re.sub(r'\bpracticum\s+yandex\b', '', text, flags=re.I)
+    text = re.sub(r'\bhttps?\s+\w+\b', '', text, flags=re.I)
+    
+    # Удаляем CSS-паттерны
+    text = re.sub(r'\bwhite\s+space\b', '', text, flags=re.I)
+    text = re.sub(r'\bspace\s+pre\b', '', text, flags=re.I)
+    text = re.sub(r'\btext\s+(family|align|decoration)\b', '', text, flags=re.I)
+    
+    # Финальная очистка множественных пробелов
+    text = re.sub(r'\s+', ' ', text).strip()
+
     return text
 
 def preprocess_text(text: str) -> str:
@@ -89,14 +121,20 @@ def preprocess_text(text: str) -> str:
     
     words = []
     for w in text.split():
+        # Расширенная фильтрация
         if (len(w) > 2 and 
+            len(w) < 20 and  # ← добавили: не больше 20 символов
             w not in STOP_WORDS and
             not w.isdigit() and
-            not re.match(r'^\d+$', w)):
-            # Правильная лемматизация через parse()
-            if re.match(r'[а-яё]+', w):
-                parsed = morph.parse(w)[0]  # ← ИСПРАВЛЕНО
-                w = parsed.normal_form      # ← ИСПРАВЛЕНО
+            not re.match(r'^\d+$', w) and
+            not re.match(r'^\d+[a-z]+$', w, re.I) and  # 3px, 255rgb
+            not re.match(r'^[a-z]+\d+$', w, re.I) and  # comment_id, answer2
+            not any(bad in w for bad in ['amp', 'comment', 'answer', 'mailto'])):  # подстроки
+            
+            # Лемматизация только русских слов
+            if re.match(r'^[а-яё]+$', w):
+                parsed = morph.parse(w)[0]
+                w = parsed.normal_form
             words.append(w)
     
     return ' '.join(words)
@@ -201,8 +239,8 @@ def clusterize_texts(file_path: str, progress_callback=None):
     vectorizer_model = CountVectorizer(
         ngram_range=(1, 2),
         stop_words=list(STOP_WORDS),
-        min_df=2,  # слово должно встречаться минимум в 2 документах
-        max_df=0.7  # игнорируем слова, встречающиеся в >70% документов
+        min_df=3,  # слово должно встречаться минимум в 2 документах
+        max_df=0.6  # игнорируем слова, встречающиеся в >70% документов
     )
 
     # --- Параметры для ~1000 текстов ---
