@@ -23,7 +23,6 @@ from sentence_transformers import SentenceTransformer
 from umap import UMAP
 from hdbscan import HDBSCAN
 from sklearn.feature_extraction.text import CountVectorizer  # +++
-import pymorphy2
 
 # Расширенный список стоп-слов
 HTML_STOP_WORDS = {
