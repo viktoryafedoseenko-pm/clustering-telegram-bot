@@ -212,7 +212,7 @@ def clusterize_texts(file_path: str, progress_callback=None):
 
     # --- Модель ---
     sync_log("🤖 Загрузка модели...")
-    model = SentenceTransformer("paraphrase-multilingual-MiniLM-L12-v2")
+    model = SentenceTransformer("paraphrase-multilingual-mpnet-base-v2")
 
     # +++ Фильтрация стоп-слов +++
     vectorizer_model = CountVectorizer(
@@ -233,7 +233,7 @@ def clusterize_texts(file_path: str, progress_callback=None):
     umap_model = UMAP(
         n_neighbors=n_neighbors,
         n_components=n_components,
-        min_dist=0.0,
+        min_dist=0.1,
         metric='cosine',
         random_state=42,
         n_jobs=1
@@ -253,7 +253,7 @@ def clusterize_texts(file_path: str, progress_callback=None):
         hdbscan_model=hdbscan_model,
         vectorizer_model=vectorizer_model,  # +++ ДОБАВЛЕНО +++
         language="multilingual",
-        calculate_probabilities=False,
+        calculate_probabilities=True,
         verbose=False,
         top_n_words=10,
         n_gram_range=(1, 2),
