@@ -1,26 +1,31 @@
 # Core
 python-telegram-bot==20.6
+python-dotenv==1.0.0
 pandas==2.2.2
 numpy==1.26.4
-scikit-learn==1.5.2
+scikit-learn==1.5.1
 
 # Text embeddings + clustering
-bertopic==0.16.0
+bertopic==0.15.0
 sentence-transformers==2.2.2
-transformers==4.36.2
-torch==2.2.1+cpu
-torchaudio==2.2.1+cpu
-torchvision==0.17.1+cpu
---find-links https://download.pytorch.org/whl/torch_stable.html
+transformers==4.35.2
+huggingface-hub==0.19.4
 
-# Utils
+# PyTorch CPU
+torch==2.2.1+cpu
+--extra-index-url https://download.pytorch.org/whl/cpu
+
+# Clustering
 umap-learn==0.5.5
 hdbscan==0.8.33
-tqdm==4.66.5
-rich==13.7.1
 
-# Для обработки русского языка
-pymorphy2
-pymorphy2-dicts-ru
+# Utils
+tqdm==4.66.1
 
+# Русский язык
+pymorphy2==0.9.1
+pymorphy2-dicts-ru==2.4.417127.4579844
 
+# HTML парсинг
+beautifulsoup4==4.12.3
+lxml==5.1.0
