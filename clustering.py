@@ -216,9 +216,9 @@ def clusterize_texts(file_path: str, progress_callback=None):
 
     # +++ Фильтрация стоп-слов +++
     vectorizer_model = CountVectorizer(
-        ngram_range=(1, 2),
+        ngram_range=(1, 3),
         stop_words=list(STOP_WORDS),
-        min_df=3,  # слово должно встречаться минимум в 3 документах
+        min_df=3,  
         max_df=0.5  # игнорируем слова, встречающиеся в >60% документов
     )
 
@@ -227,7 +227,7 @@ def clusterize_texts(file_path: str, progress_callback=None):
     min_cluster_size = max(10, int(n_unique * 0.01))  
     min_samples = max(4, int(n_unique * 0.005))  # ~10 текстов
     
-    n_neighbors = min(30, max(15, n_unique // 50))  # ~20 соседей
+    n_neighbors = 50
     n_components = 15  # больше компонент для UMAP
 
     umap_model = UMAP(
