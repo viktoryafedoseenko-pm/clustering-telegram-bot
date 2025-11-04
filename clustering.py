@@ -225,10 +225,10 @@ def clusterize_texts(file_path: str, progress_callback=None):
     # --- Параметры для ~1000 текстов ---
     # Цель: получить 10-20 кластеров
     min_cluster_size = max(10, int(n_unique * 0.01))  
-    min_samples = max(4, int(n_unique * 0.01))  # ~10 текстов
+    min_samples = max(4, int(n_unique * 0.005))  # ~10 текстов
     
     n_neighbors = min(30, max(15, n_unique // 50))  # ~20 соседей
-    n_components = 10  # больше компонент для UMAP
+    n_components = 15  # больше компонент для UMAP
 
     umap_model = UMAP(
         n_neighbors=n_neighbors,
@@ -257,7 +257,7 @@ def clusterize_texts(file_path: str, progress_callback=None):
         verbose=False,
         top_n_words=10,
         n_gram_range=(1, 2),
-        min_topic_size=min_cluster_size
+        min_topic_size=int(min_cluster_size * 0.8)
     )
 
     # --- Кластеризация ---
