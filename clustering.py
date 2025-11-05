@@ -63,7 +63,7 @@ def clean_html(text: str) -> str:
     """Агрессивная очистка HTML и CSS"""
     if not isinstance(text, str):
         return ""
-        
+
     # Базовая очистка тегов
     text = re.sub(r'<[^>]+>', ' ', text)
     text = re.sub(r'&[a-z]+;', ' ', text)
@@ -192,6 +192,53 @@ def clusterize_texts(file_path: str, progress_callback=None):
     sync_log("🧹 Предобработка...")
     preprocessed_texts = [preprocess_text(t) for t in raw_texts]
     
+    # +++ НОВОЕ: Предфильтрация HTML-мусора +++
+    sync_log("🔍 Фильтрация HTML-документов...")
+
+    def is_html_garbage(raw_text, cleaned_text):
+        """Определяет, является ли текст HTML-мусором"""
+        
+        # 1. Слишком много HTML-тегов
+        html_tag_count = raw_text.count('<')
+        if html_tag_count > 10:  # больше 10 тегов
+            return True
+        
+        # 2. После очистки почти ничего не осталось
+        if len(cleaned_text) < 20:  # меньше 20 символов
+            return True
+        
+        # 3. Соотношение длины: очищенный текст < 10% от исходного
+        if len(cleaned_text) < len(raw_text) * 0.1:
+            return True
+        
+        # 4. Начинается с DOCTYPE или <html
+        if raw_text.strip().startswith(('<!DOCTYPE', '<html', '<HTML')):
+            return True
+        
+        return False
+
+    # Фильтруем
+    filtered_data = []
+    for raw, cleaned in zip(raw_texts, preprocessed_texts):
+        if not is_html_garbage(raw, cleaned):
+            filtered_data.append((raw, cleaned))
+
+    # Если отфильтровали слишком много — выводим статистику
+    removed_count = len(raw_texts) - len(filtered_data)
+    if removed_count > 0:
+        sync_log(f"🗑️  Удалено HTML-мусора: {removed_count} текстов ({removed_count/len(raw_texts)*100:.1f}%)")
+
+    # Обновляем данные
+    raw_texts = [r for r, c in filtered_data]
+    preprocessed_texts = [c for r, c in filtered_data]
+    n = len(raw_texts)
+
+    if n == 0:
+        raise ValueError("После фильтрации не осталось текстов!")
+
+    # +++ КОНЕЦ НОВОГО БЛОКА +++
+
+
     valid_indices = [i for i, t in enumerate(preprocessed_texts) 
                      if t.strip() and len(t.split()) >= 2]
     
