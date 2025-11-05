@@ -59,33 +59,61 @@ STOP_WORDS = COMMON_RUSSIAN_STOP_WORDS.union(HTML_STOP_WORDS)
 morph = pymorphy2.MorphAnalyzer()
 
 def clean_html(text: str) -> str:
-    """Агрессивная очистка HTML и CSS"""
+    """Агрессивная очистка HTML и CSS v2"""
     if not isinstance(text, str):
         return ""
     
-
+    # 1. Удаляем полностью HTML-документы (твой случай!)
+    if text.strip().startswith('<html') or text.strip().startswith('<!DOCTYPE'):
+        # Пытаемся извлечь только body
+        body_match = re.search(r'<body[^>]*>(.*?)</body>', text, re.DOTALL | re.IGNORECASE)
+        if body_match:
+            text = body_match.group(1)
+        else:
+            return ""  # Если только шаблон письма — выбрасываем
+    
+    # 2. Базовая очистка тегов
+    text = re.sub(r'<style[^>]*>.*?</style>', ' ', text, flags=re.DOTALL | re.IGNORECASE)
+    text = re.sub(r'<script[^>]*>.*?</script>', ' ', text, flags=re.DOTALL | re.IGNORECASE)
+    text = re.sub(r'<head[^>]*>.*?</head>', ' ', text, flags=re.DOTALL | re.IGNORECASE)
     text = re.sub(r'<[^>]+>', ' ', text)
+    
+    # 3. HTML entities
     text = re.sub(r'&[a-z]+;', ' ', text)
     text = re.sub(r'&#\d+;', ' ', text)
+    
+    # 4. CSS свойства
     text = re.sub(r'[a-z\-]+\s*:\s*[^;"]+;?', ' ', text, flags=re.IGNORECASE)
+    
+    # 5. Атрибуты
     text = re.sub(r'\w+\s*=\s*["\'][^"\']*["\']', ' ', text)
+    
+    # 6. Размеры и цвета
     text = re.sub(r'\b\d+[a-z%]+\b', ' ', text, flags=re.IGNORECASE)
     text = re.sub(r'#[0-9a-f]{3,6}\b', ' ', text, flags=re.IGNORECASE)
-    text = re.sub(r'\b(rgb|rgba|url|var|calc|auto|inherit|initial|unset)\b', ' ', text, flags=re.IGNORECASE)
-    text = re.sub(r'\b(\d+)\s+\1\b', '', text) 
+    
+    # 7. CSS функции и ключевые слова
+    text = re.sub(r'\b(rgb|rgba|url|var|calc|auto|inherit|initial|unset|none|block|inline)\b', ' ', text, flags=re.IGNORECASE)
+    
+    # 8. Специфичные паттерны из твоих данных
+    text = re.sub(r'\b(white\s+space|space\s+pre|pre\s+wrap)\b', ' ', text, flags=re.IGNORECASE)
+    text = re.sub(r'\b(font\s+family|text\s+align|line\s+height)\b', ' ', text, flags=re.IGNORECASE)
+    
+    # 9. Убираем повторяющиеся числа (255 255 255)
+    text = re.sub(r'\b(\d+)(\s+\1)+\b', '', text)
+    
+    # 10. Трёхзначные числа (часто из CSS)
     text = re.sub(r'\b\d{3}\b', '', text)
-    text = re.sub(r'\b\w*amp\w*\b', '', text, flags=re.I)
-    text = re.sub(r'\b\w*comment_id\w*\b', '', text, flags=re.I)
-    text = re.sub(r'\b\w*answer\w*\b', '', text, flags=re.I)    
-    text = re.sub(r'\b\w*px\w*\b', '', text, flags=re.I)
-    text = re.sub(r'\bpracticum\s+yandex\b', '', text, flags=re.I)
-    text = re.sub(r'\bhttps?\s+\w+\b', '', text, flags=re.I)
-    text = re.sub(r'\bwhite\s+space\b', '', text, flags=re.I)
-    text = re.sub(r'\bspace\s+pre\b', '', text, flags=re.I)
-    text = re.sub(r'\btext\s+(family|align|decoration)\b', '', text, flags=re.I)
+    
+    # 11. Email подписи и технические строки
+    text = re.sub(r'Отправлено с (iPhone|iPad|Android|Mail).*$', '', text, flags=re.IGNORECASE | re.MULTILINE)
+    text = re.sub(r'^(From|To|Subject|Date):.*$', '', text, flags=re.IGNORECASE | re.MULTILINE)
+    
+    # 12. Пробелы
     text = re.sub(r'\s+', ' ', text).strip()
-
+    
     return text
+
 
 def preprocess_text(text: str) -> str:
     """Улучшенная предобработка"""
