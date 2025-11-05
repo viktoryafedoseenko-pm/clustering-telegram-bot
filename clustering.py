@@ -54,7 +54,24 @@ COMMON_RUSSIAN_STOP_WORDS = {
     'будет', 'было', 'были', 'буду', 'будем', 'будете', 'будут',
 }
 
-STOP_WORDS = COMMON_RUSSIAN_STOP_WORDS.union(HTML_STOP_WORDS)
+# Новый блок — добавь после COMMON_RUSSIAN_STOP_WORDS
+DOMAIN_STOP_WORDS = {
+    # Техническое
+    'usedesk', 'ticket', 'comment', 'answer', 'email', 'support', 'mail', 'mailto',
+    'yandex', 'practicum', 'практикум', 'яндекс',
+    
+    # Email
+    'sent', 'iphone', 'ipad', 'android', 'отправлено', 'from', 'gmail',
+    'почта', 'почту', 'письмо', 'письма',
+    
+    # Даты (убираем июля, спринт из кластеров!)
+    'января', 'февраля', 'марта', 'апреля', 'мая', 'июня',
+    'июля', 'августа', 'сентября', 'октября', 'ноября', 'декабря',
+    'понедельник', 'вторник', 'среда', 'четверг', 'пятница', 'суббота', 'воскресенье',
+    'сегодня', 'вчера', 'завтра', 'спринт',
+}
+
+STOP_WORDS = COMMON_RUSSIAN_STOP_WORDS.union(HTML_STOP_WORDS).union(DOMAIN_STOP_WORDS)
 
 morph = pymorphy2.MorphAnalyzer()
 
