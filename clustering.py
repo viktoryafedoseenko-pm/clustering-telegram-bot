@@ -266,9 +266,7 @@ def clusterize_texts(file_path: str, progress_callback=None):
     # +++ Фильтрация стоп-слов +++
     vectorizer_model = CountVectorizer(
         ngram_range=(1, 2),
-        stop_words=list(STOP_WORDS),
-        min_df=3,  
-        max_df=0.5  # игнорируем слова, встречающиеся в >60% документов
+        stop_words=list(STOP_WORDS)
     )
 
     # --- Параметры для ~1000 текстов ---
