@@ -15,6 +15,7 @@ if not hasattr(inspect, 'getargspec'):
 import pandas as pd
 import numpy as np
 import re
+import pymorphy2
 import warnings
 import asyncio
 from collections import Counter
