@@ -77,32 +77,63 @@ STOP_WORDS = COMMON_RUSSIAN_STOP_WORDS.union(HTML_STOP_WORDS)
 morph = pymorphy2.MorphAnalyzer()
 
 def clean_html(text: str) -> str:
-    """Агрессивная очистка HTML и CSS"""
+    """Агрессивная очистка HTML и CSS v2"""
     if not isinstance(text, str):
         return ""
     
-
+    # 1. Удаляем полностью HTML-документы
+    if text.strip().startswith('<html') or text.strip().startswith('<!DOCTYPE'):
+        # Пытаемся извлечь только body
+        body_match = re.search(r'<body[^>]*>(.*?)</body>', text, re.DOTALL | re.IGNORECASE)
+        if body_match:
+            text = body_match.group(1)
+        else:
+            return ""  # Только шаблон письма — выбрасываем
+    
+    # 2. Удаляем блочные теги целиком
+    text = re.sub(r'<style[^>]*>.*?</style>', ' ', text, flags=re.DOTALL | re.IGNORECASE)
+    text = re.sub(r'<script[^>]*>.*?</script>', ' ', text, flags=re.DOTALL | re.IGNORECASE)
+    text = re.sub(r'<head[^>]*>.*?</head>', ' ', text, flags=re.DOTALL | re.IGNORECASE)
+    
+    # 3. Остальные теги
     text = re.sub(r'<[^>]+>', ' ', text)
+    
+    # 4. HTML entities
     text = re.sub(r'&[a-z]+;', ' ', text)
     text = re.sub(r'&#\d+;', ' ', text)
+    
+    # 5. CSS свойства (flex, display, padding и т.д.)
     text = re.sub(r'[a-z\-]+\s*:\s*[^;"]+;?', ' ', text, flags=re.IGNORECASE)
+    
+    # 6. Атрибуты (class="...", id="...")
     text = re.sub(r'\w+\s*=\s*["\'][^"\']*["\']', ' ', text)
+    
+    # 7. Размеры (5px, 10%, 3rem)
     text = re.sub(r'\b\d+[a-z%]+\b', ' ', text, flags=re.IGNORECASE)
+    
+    # 8. Цвета (#fff, rgb(255,255,255))
     text = re.sub(r'#[0-9a-f]{3,6}\b', ' ', text, flags=re.IGNORECASE)
-    text = re.sub(r'\b(rgb|rgba|url|var|calc|auto|inherit|initial|unset)\b', ' ', text, flags=re.IGNORECASE)
-    text = re.sub(r'\b(\d+)\s+\1\b', '', text) 
-    text = re.sub(r'\b\d{3}\b', '', text)
-    text = re.sub(r'\b\w*amp\w*\b', '', text, flags=re.I)
-    text = re.sub(r'\b\w*comment_id\w*\b', '', text, flags=re.I)
-    text = re.sub(r'\b\w*answer\w*\b', '', text, flags=re.I)    
-    text = re.sub(r'\b\w*px\w*\b', '', text, flags=re.I)
-    text = re.sub(r'\bpracticum\s+yandex\b', '', text, flags=re.I)
-    text = re.sub(r'\bhttps?\s+\w+\b', '', text, flags=re.I)
-    text = re.sub(r'\bwhite\s+space\b', '', text, flags=re.I)
-    text = re.sub(r'\bspace\s+pre\b', '', text, flags=re.I)
-    text = re.sub(r'\btext\s+(family|align|decoration)\b', '', text, flags=re.I)
+    text = re.sub(r'rgb\([^)]+\)', ' ', text, flags=re.IGNORECASE)
+    
+    # 9. CSS ключевые слова
+    text = re.sub(r'\b(flex|start|end|center|auto|none|block|inline|hidden|visible)\b', ' ', text, flags=re.IGNORECASE)
+    
+    # 10. Специфичные паттерны
+    text = re.sub(r'\b(white\s+space|space\s+pre|pre\s+wrap)\b', ' ', text, flags=re.IGNORECASE)
+    text = re.sub(r'\b\d+px\s+start\b', ' ', text, flags=re.IGNORECASE)  # "5px start"
+    
+    # 11. Повторяющиеся числа (255 255 255)
+    text = re.sub(r'\b(\d+)(\s+\1)+\b', r'\1', text)
+    
+    # 12. Короткие числа (часто из CSS)
+    text = re.sub(r'\b\d{1,3}\b', ' ', text)
+    
+    # 13. Email подписи
+    text = re.sub(r'Отправлено с (iPhone|iPad|Android|Mail).*$', '', text, flags=re.IGNORECASE | re.MULTILINE)
+    
+    # 14. Пробелы
     text = re.sub(r'\s+', ' ', text).strip()
-
+    
     return text
 
 def preprocess_text(text: str) -> str:
