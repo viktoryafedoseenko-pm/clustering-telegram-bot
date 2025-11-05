@@ -15,6 +15,7 @@ if not hasattr(inspect, 'getargspec'):
 import pandas as pd
 import numpy as np
 import re
+import pymorphy2
 import warnings
 import asyncio
 from collections import Counter
@@ -22,7 +23,8 @@ from bertopic import BERTopic
 from sentence_transformers import SentenceTransformer
 from umap import UMAP
 from hdbscan import HDBSCAN
-from sklearn.feature_extraction.text import CountVectorizer  # +++
+from sklearn.feature_extraction.text import CountVectorizer 
+
 
 # Расширенный список стоп-слов
 HTML_STOP_WORDS = {
