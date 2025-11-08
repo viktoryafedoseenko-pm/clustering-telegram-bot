@@ -7,6 +7,7 @@ import pandas as pd
 from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 from clustering import clusterize_texts
+from clustering import generate_insight_yandex
 
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
@@ -240,6 +241,12 @@ async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # Шаг 4: Формирование статистики
         stats_message = format_statistics(stats)
         
+        # Шаг 5: Формирование инсайта
+        insight_text = generate_insight_yandex(stats)
+        if insight_text:
+            stats_message += f"\n\n💡 <b>Инсайт:</b>\n{html.escape(insight_text)}"
+        
+        # Информируем, что почти готово
         await progress_msg.edit_text(
             "⏳ <b>Почти готово...</b>\n\n"
             "✅ Файл загружен\n"
@@ -248,7 +255,7 @@ async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
             parse_mode='HTML'
         )
         
-        # Отправка результата
+        # Отправка результата: CSV + осмысленный анализ
         with open(result_path, 'rb') as result_file:
             await update.message.reply_document(
                 document=result_file,

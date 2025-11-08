@@ -577,7 +577,7 @@ def clusterize_texts(file_path: str, progress_callback=None):
         examples = "\n".join([f"- {n}" for n in cluster_names])
 
         prompt = f"""
-    Ты — аналитик обращений пользователей образовательной платформы.
+    Ты — аналитик обращений пользователей платформы.
     Перед тобой список названий кластеров (тем) обращений.
     Нужно объединить их в несколько мастер-категорий (4–8 штук).
 
@@ -634,6 +634,68 @@ def clusterize_texts(file_path: str, progress_callback=None):
         return "Прочее"
 
     df["master_category"] = df["cluster_name"].apply(map_to_master)
+
+    def generate_insight_yandex(stats):
+        """
+        Генерация краткого осмысленного инсайта по результатам кластеризации через YandexGPT
+        """
+        if not YANDEX_API_KEY or not YANDEX_FOLDER_ID:
+            return None
+
+        # Формируем понятный контекст для модели
+        n_clusters = stats.get("n_clusters", 0)
+        total = stats.get("total_texts", 0)
+        noise = stats.get("noise_percent", 0)
+        top_clusters = stats.get("top_clusters", [])
+
+        clusters_summary = "\n".join(
+            [f"- {c['name']} — {c['size']} текстов" for c in top_clusters]
+        )
+
+        prompt = f"""
+    Ты аналитик клиентских обращений.
+
+    Вот результаты кластеризации {total} текстов:
+    • Количество кластеров: {n_clusters}
+    • Доля шума (непопавших): {noise:.1f}%
+    • Топ темы:
+    {clusters_summary}
+
+    Задание:
+    1. Кратко (до 3 предложений) объясни, что видно из этих данных.
+    2. Используй деловой тон, без эмодзи.
+    3. Сделай фокус на смысле — какие инсайты может извлечь продукт-менеджер.
+    """
+
+        url = "https://llm.api.cloud.yandex.net/foundationModels/v1/completion"
+        headers = {
+            "Authorization": f"Api-Key {YANDEX_API_KEY}",
+            "Content-Type": "application/json"
+        }
+
+        data = {
+            "modelUri": f"gpt://{YANDEX_FOLDER_ID}/yandexgpt-lite/latest",
+            "completionOptions": {
+                "stream": False,
+                "temperature": 0.5,
+                "maxTokens": 80
+            },
+            "messages": [{"role": "user", "text": prompt}]
+        }
+
+        try:
+            response = requests.post(url, headers=headers, json=data, timeout=10)
+            if response.status_code == 200:
+                result = response.json()
+                text = result['result']['alternatives'][0]['message']['text'].strip()
+                return text
+            else:
+                print(f"⚠️ Ошибка при генерации инсайта: {response.status_code}")
+                return None
+        except Exception as e:
+            print(f"⚠️ Ошибка запроса к YandexGPT: {e}")
+            return None
+
 
     #  Статистика
     print("\n📊 Статистика по категориям:")
