@@ -30,7 +30,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-# ========== YandexGPT Integration ==========
+#YandexGPT Integration
 
 YANDEX_API_KEY = os.getenv('YANDEX_API_KEY')
 YANDEX_FOLDER_ID = os.getenv('YANDEX_FOLDER_ID')
@@ -49,8 +49,8 @@ def generate_cluster_name_yandex(texts_sample, max_retries=2):
     if not YANDEX_API_KEY or not YANDEX_FOLDER_ID:
         return None
     
-    # Берём 5 примеров (до 100 символов каждый)
-    examples = "\n".join([f"- {t[:100]}" for t in texts_sample[:8]])
+    # Берём 8 примеров (до 130 символов каждый)
+    examples = "\n".join([f"- {t[:130]}" for t in texts_sample[:8]])
     
     prompt = f"""Ты анализируешь обращения в техподдержку образовательной платформы Яндекс Практикум.
 
@@ -77,8 +77,8 @@ def generate_cluster_name_yandex(texts_sample, max_retries=2):
         "modelUri": f"gpt://{YANDEX_FOLDER_ID}/yandexgpt-lite/latest",
         "completionOptions": {
             "stream": False,
-            "temperature": 0.4,  # Низкая температура для стабильности
-            "maxTokens": 30      # Короткое название
+            "temperature": 0.4,  
+            "maxTokens": 30 
         },
         "messages": [
             {
@@ -95,18 +95,16 @@ def generate_cluster_name_yandex(texts_sample, max_retries=2):
             if response.status_code == 200:
                 result = response.json()
                 text = result['result']['alternatives'][0]['message']['text'].strip()
-                
-                # Очистка от лишнего
+
                 text = text.replace('Название:', '').strip()
                 text = text.strip('"').strip("'")
                 
-                # Проверка длины (не больше 50 символов)
                 if len(text) > 50:
                     text = text[:50]
                 
                 return text
             
-            elif response.status_code == 429:  # Rate limit
+            elif response.status_code == 429: 
                 print(f"⚠️ Rate limit, ждём 2 секунды...")
                 import time
                 time.sleep(2)
@@ -129,12 +127,9 @@ def generate_cluster_name_yandex(texts_sample, max_retries=2):
     
     return None
 
-# ==========================================
 
-
-# Расширенный список стоп-слов
+# Cписок стоп-слов
 HTML_STOP_WORDS = {
-    # HTML/CSS базовые
     'style', 'div', 'width', 'height', 'br', 'span', 'class', 'id', 'href', 'src',
     'px', 'pt', 'em', 'rem', 'color', 'background', 'font', 'size', 'border',
     'margin', 'padding', 'align', 'valign', 'center', 'left', 'right', 'justify',
@@ -200,9 +195,7 @@ DOMAIN_STOP_WORDS = {
 
     # Служебные
     'message', 'сумму', 'чек',  # "message • 00 сумму"
-
 }
-
 
 STOP_WORDS = COMMON_RUSSIAN_STOP_WORDS.union(HTML_STOP_WORDS).union(DOMAIN_STOP_WORDS)
 
@@ -285,13 +278,13 @@ def preprocess_text(text: str) -> str:
     for w in text.split():
         # Расширенная фильтрация
         if (len(w) > 2 and 
-            len(w) < 20 and  # ← добавили: не больше 20 символов
+            len(w) < 20 and 
             w not in STOP_WORDS and
             not w.isdigit() and
             not re.match(r'^\d+$', w) and
-            not re.match(r'^\d+[a-z]+$', w, re.I) and  # 3px, 255rgb
-            not re.match(r'^[a-z]+\d+$', w, re.I) and  # comment_id, answer2
-            not any(bad in w for bad in ['amp', 'comment', 'answer', 'mailto'])):  # подстроки
+            not re.match(r'^\d+[a-z]+$', w, re.I) and 
+            not re.match(r'^[a-z]+\d+$', w, re.I) and
+            not any(bad in w for bad in ['amp', 'comment', 'answer', 'mailto'])):
             
             # Лемматизация только русских слов
             if re.match(r'^[а-яё]+$', w):
@@ -359,7 +352,7 @@ def clusterize_texts(file_path: str, progress_callback=None):
         except:
             print(msg)
 
-    # --- Загрузка ---
+    # Загрузка
     sync_log("📥 Загружаю файл...")
     df = pd.read_csv(file_path, usecols=[0], encoding='utf-8', dtype=str)
     raw_texts = df.iloc[:, 0].fillna("").astype(str).tolist()
@@ -369,7 +362,7 @@ def clusterize_texts(file_path: str, progress_callback=None):
 
     sync_log(f"📊 Загружено {n} текстов")
 
-    # --- Предобработка ---
+    # Предобработка
     sync_log("🧹 Предобработка...")
     preprocessed_texts = [preprocess_text(t) for t in raw_texts]
     
@@ -396,7 +389,7 @@ def clusterize_texts(file_path: str, progress_callback=None):
     n_unique = len(unique_texts)
     sync_log(f"✨ Уникальных: {n_unique}")
 
-    # --- Модель ---
+    # Модель
     sync_log("🤖 Загрузка модели...")
     model = SentenceTransformer("paraphrase-multilingual-MiniLM-L12-v2")
 
@@ -405,14 +398,12 @@ def clusterize_texts(file_path: str, progress_callback=None):
 
     vectorizer_model = CountVectorizer(
         ngram_range=(1, 2),
-        stop_words=list(ALL_STOP_WORDS),  # ← Используем ВСЕ стоп-слова!
-        min_df=3,      # Слово должно быть минимум в 3 документах
-        max_df=0.5,    # Игнорируем слова, встречающиеся в >50% текстов (было 0.6)
-        max_features=1000  # ← НОВОЕ: ограничиваем словарь 1000 важными словами
+        stop_words=list(ALL_STOP_WORDS), 
+        min_df=3,     
+        max_df=0.5, 
+        max_features=1000 
     )
 
-
-    # --- Параметры для ~1000 текстов ---
     # Адаптивная настройка под размер данных
     if n_unique < 500:
         # Для маленьких датасетов
@@ -488,7 +479,7 @@ def clusterize_texts(file_path: str, progress_callback=None):
         return filtered
 
 
-    # --- Кластеризация ---
+    # Кластеризация
     sync_log(f"🎯 Кластеризация (min_size={min_cluster_size})...")
     try:
         topics, _ = topic_model.fit_transform(unique_texts)
@@ -496,7 +487,7 @@ def clusterize_texts(file_path: str, progress_callback=None):
         sync_log(f"⚠️ Ошибка: {e}")
         raise
 
-    # --- Названия (с дополнительной фильтрацией) ---
+    # Названия (с дополнительной фильтрацией)
     if YANDEX_API_KEY and YANDEX_FOLDER_ID:
         sync_log("📝 Генерация названий с помощью YandexGPT...")
     else:
@@ -542,7 +533,7 @@ def clusterize_texts(file_path: str, progress_callback=None):
     df["cluster_id"] = topics
     df["cluster_name"] = [get_name(t) for t in topics]
 
-    # === НОРМАЛИЗАЦИЯ НАЗВАНИЙ КЛАСТЕРОВ ===
+    # Нормализация названий кластеров
     import re
 
     def normalize_cluster_name(name: str) -> str:
@@ -577,9 +568,8 @@ def clusterize_texts(file_path: str, progress_callback=None):
 
     df["cluster_name"] = df["cluster_name"].apply(normalize_cluster_name)
     df["cluster_name"] = df["cluster_name"].str.title()
-    # === КОНЕЦ НОРМАЛИЗАЦИИ ===
 
-    # === МАСТЕР-КАТЕГОРИИ ===
+    # Мастер-категории
     MASTER_CATEGORIES = {
         "Финансовые вопросы": ["оплата", "платеж", "подписк"],
         "Документы и дипломы": ["диплом", "документ", "сертификат", "анкета"],
@@ -596,13 +586,12 @@ def clusterize_texts(file_path: str, progress_callback=None):
         return "Прочее"
 
     df["master_category"] = df["cluster_name"].apply(assign_master_category)
-    # === КОНЕЦ МАСТЕР-КАТЕГОРИЙ ===
 
-    # --- Метрики ---
+    # Метрики
     stats = calculate_metrics(topics, cluster_names, topic_model)
     sync_log(f"✅ {stats['n_clusters']} кластеров за {time.time()-start_time:.1f}с")
 
-    # --- Сохранение ---
+    # Сохранение
     out = file_path.replace(".csv", "_clustered.csv")
     df.to_csv(out, index=False, encoding='utf-8')
 
