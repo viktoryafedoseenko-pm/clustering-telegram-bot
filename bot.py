@@ -134,7 +134,7 @@ async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     try:
         # Проверка размера файла
-        MAX_FILE_SIZE_MB = 10
+        MAX_FILE_SIZE_MB = 20
         file_size_mb = update.message.document.file_size / (1024 * 1024)
         
         if file_size_mb > MAX_FILE_SIZE_MB:
@@ -175,7 +175,7 @@ async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
             n_cols = len(df.columns)
             
             # Проверка количества строк
-            MAX_ROWS = 10000
+            MAX_ROWS = 50000
             if n_rows > MAX_ROWS:
                 await progress_msg.edit_text(
                     f"❌ <b>Слишком много строк</b>\n\n"
