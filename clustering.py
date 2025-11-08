@@ -26,7 +26,9 @@ from sklearn.feature_extraction.text import CountVectorizer  # +++
 import pymorphy2
 import os
 import requests
+import json
 from dotenv import load_dotenv
+
 
 load_dotenv()
 
@@ -569,23 +571,78 @@ def clusterize_texts(file_path: str, progress_callback=None):
     df["cluster_name"] = df["cluster_name"].apply(normalize_cluster_name)
     df["cluster_name"] = df["cluster_name"].str.title()
 
-    # Мастер-категории
-    MASTER_CATEGORIES = {
-        "Финансовые вопросы": ["оплата", "платеж", "подписк"],
-        "Документы и дипломы": ["диплом", "документ", "сертификат", "анкета"],
-        "Технические проблемы": ["техническ", "ошибк", "сбой", "сервер"],
-        "Учебные вопросы": ["курс", "обучен", "помощь"],
-        "Прочее": ["прочее", "неясн"]
-    }
+    # Мастер-категории, автогенерация через llm
+    def generate_master_categories_yandex(cluster_names):
+        # собираем примеры
+        examples = "\n".join([f"- {n}" for n in cluster_names])
 
-    def assign_master_category(name):
-        n = name.lower()
-        for cat, keywords in MASTER_CATEGORIES.items():
-            if any(k in n for k in keywords):
+        prompt = f"""
+    Ты — аналитик обращений пользователей образовательной платформы.
+    Перед тобой список названий кластеров (тем) обращений.
+    Нужно объединить их в несколько мастер-категорий (4–8 штук).
+
+    Правила:
+    - Группируй только по смыслу.
+    - Название каждой категории должно быть коротким (2–4 слова).
+    - Не добавляй ничего, кроме JSON.
+    - Верни JSON, где ключ — название категории, а значение — список кластеров, которые в неё входят.
+
+    Пример формата ответа:
+    {{
+    "Финансовые вопросы": ["Оплата", "Проблемы с оплатой"],
+    "Документы и дипломы": ["Получение диплома", "Диплом и документы"],
+    "Учебные вопросы": ["Помощь с курсами", "Вопросы по обучению"]
+    }}
+
+    Вот список кластеров для группировки:
+    {examples}
+    """
+
+        url = "https://llm.api.cloud.yandex.net/foundationModels/v1/completion"
+        headers = {
+            "Authorization": f"Api-Key {YANDEX_API_KEY}",
+            "Content-Type": "application/json"
+        }
+        data = {
+            "modelUri": f"gpt://{YANDEX_FOLDER_ID}/yandexgpt-lite/latest",
+            "completionOptions": {"stream": False, "temperature": 0.3, "maxTokens": 700},
+            "messages": [{"role": "user", "text": prompt}]
+        }
+
+        response = requests.post(url, headers=headers, json=data)
+        text = response.json()["result"]["alternatives"][0]["message"]["text"]
+
+        # безопасный парсинг JSON
+        try:
+            parsed = json.loads(text)
+        except json.JSONDecodeError:
+            print("⚠️ Не удалось распарсить JSON, ответ LLM:")
+            print(text)
+            parsed = {"Прочее": cluster_names}
+        return parsed
+
+
+    # Генерируем мастер-категории
+    unique_names = df["cluster_name"].dropna().unique().tolist()
+    auto_categories = generate_master_categories_yandex(unique_names)
+
+    # Маппинг кластера -> мастер-категория
+    def map_to_master(name):
+        for cat, subs in auto_categories.items():
+            if name in subs:
                 return cat
         return "Прочее"
 
-    df["master_category"] = df["cluster_name"].apply(assign_master_category)
+    df["master_category"] = df["cluster_name"].apply(map_to_master)
+
+    #  Статистика
+    print("\n📊 Статистика по категориям:")
+    stats = (
+        df.groupby("master_category")
+        .agg(Кластеров=("cluster_name", "nunique"))
+        .sort_values("Кластеров", ascending=False)
+    )
+    print(stats)
 
     # Метрики
     stats = calculate_metrics(topics, cluster_names, topic_model)
