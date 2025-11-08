@@ -275,7 +275,7 @@ def clusterize_texts(file_path: str, progress_callback=None):
         n_neighbors = 10
     elif n_unique < 5000:
         # Для 500-5000 текстов (твой случай: 759)
-        min_cluster_size = max(12, int(n_unique * 0.015))  # ~11 для 759
+        min_cluster_size = max(10, int(n_unique * 0.012))  # ~11 для 759
         min_samples = max(3, int(min_cluster_size * 0.3))  # ~3-4
         n_neighbors = min(25, max(15, n_unique // 40))     # ~19
     else:
