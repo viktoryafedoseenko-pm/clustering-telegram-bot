@@ -559,43 +559,43 @@ def clusterize_texts(file_path: str, progress_callback=None):
 
     info = topic_model.get_topic_info()
     cluster_names = {}
-    
-    def get_name(t):
-        """Генерация названия кластера (с использованием YandexGPT)"""
-        if t == -1:
-            return "🔹 Прочее"
+
+    # Сначала генерируем названия для всех уникальных кластеров
+    unique_clusters = set(topics)
+    for cluster_id in unique_clusters:
+        if cluster_id == -1:
+            cluster_names[cluster_id] = "🔹 Прочее"
+            continue
         
-        topic_words = topic_model.get_topic(t)
+        topic_words = topic_model.get_topic(cluster_id)
         if not topic_words:
-            cluster_names[t] = f"Кластер {t}"
-            return f"Кластер {t}"
+            cluster_names[cluster_id] = f"Кластер {cluster_id}"
+            continue
         
         # 1. Пробуем YandexGPT (если настроен)
         if YANDEX_API_KEY and YANDEX_FOLDER_ID:
             # Получаем тексты кластера
-            cluster_texts = [unique_texts[i] for i, cluster_id in enumerate(topics) if cluster_id == t]
+            cluster_texts = [unique_texts[i] for i, cluster_id_enum in enumerate(topics) if cluster_id_enum == cluster_id]
             
             if cluster_texts:
                 yandex_name = generate_cluster_name_yandex(cluster_texts)
                 if yandex_name:
-                    print(f"✨ Кластер {t}: {yandex_name}")
-                    cluster_names[t] = yandex_name
-                    return yandex_name
+                    print(f"✨ Кластер {cluster_id}: {yandex_name}")
+                    cluster_names[cluster_id] = yandex_name
+                    continue
         
         # 2. Fallback: используем BERTopic слова
         filtered = filter_topic_words(topic_words, ALL_STOP_WORDS)
         
         if filtered:
             name = " • ".join([w for w, s in filtered[:3]])
-            cluster_names[t] = name
-            return name
-        
-        cluster_names[t] = f"Кластер {t}"
-        return f"Кластер {t}"
+            cluster_names[cluster_id] = name
+        else:
+            cluster_names[cluster_id] = f"Кластер {cluster_id}"
 
-
+    # Теперь просто маппим кластеры к названиям
     df["cluster_id"] = topics
-    df["cluster_name"] = [get_name(t) for t in topics]
+    df["cluster_name"] = [cluster_names[t] for t in topics]
 
     # Нормализация названий кластеров
     import re
