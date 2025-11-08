@@ -75,7 +75,8 @@ DOMAIN_STOP_WORDS = {
     'bgcolor', 'radius', 'display', 'block', 'inline', 'hidden', 'visible',
     'opacity', 'overflow', 'target', 'blank', 'rel', 'href', 'src', 'alt',
     'title', 'class', 'style', 'font', 'margin', 'padding', 'border',
-    'width', 'height', 'px', 'caps', 'start', 'word',
+    'width', 'height', 'px', 'caps', 'start', 'word', 'decoration', 'break', 'transparent', 'inbound', 'blank',
+    'transform', 'lesson', 'max', 'min', 'px',
     
     # UTM и аналитика
     'utm_source', 'utm_medium', 'utm_campaign', 'utm_content', 'utm_term',
@@ -85,6 +86,14 @@ DOMAIN_STOP_WORDS = {
     'можно', 'нужно', 'хочу', 'могу', 'хотел', 'хотела', 'надо',
     'сейчас', 'теперь', 'уже', 'ещё', 'вопрос', 'помочь', 'помогите',
     'доброе', 'утро', 'вечер', 'ночь',  # "доброе утро • утро • доброе"
+
+    # Числа и коды
+    '2025', '2024', '00', '07', '06', '01', '02', '03', '04', '05', '08', '09', '10', '11', '12',
+    '540px', '15', '20', '30',
+
+    # Служебные
+    'message', 'сумму', 'чек',  # "message • 00 сумму"
+
 }
 
 
@@ -263,10 +272,13 @@ def clusterize_texts(file_path: str, progress_callback=None):
     preprocessed_texts = [preprocessed_texts[i] for i in valid_indices]
     df = df.iloc[valid_indices].reset_index(drop=True)
     
-    # --- Удаление дубликатов ---
+    # Удаление дубликатов по очищенным текстам
     sync_log("🔍 Удаление дубликатов...")
-    df = df.drop_duplicates(subset=df.columns[0], keep="first").reset_index(drop=True)
-    unique_texts = df.iloc[:, 0].tolist()
+    df['_preprocessed'] = preprocessed_texts
+    df = df.drop_duplicates(subset='_preprocessed', keep="first").reset_index(drop=True)
+    preprocessed_texts = df['_preprocessed'].tolist()
+    df = df.drop(columns=['_preprocessed'])  # Убираем служебную колонку
+    unique_texts = preprocessed_texts
     n_unique = len(unique_texts)
     sync_log(f"✨ Уникальных: {n_unique}")
 
@@ -295,7 +307,7 @@ def clusterize_texts(file_path: str, progress_callback=None):
         n_neighbors = 10
     elif n_unique < 5000:
         # Для 500-5000 текстов (твой случай: 759)
-        min_cluster_size = max(10, int(n_unique * 0.012))  # ~11 для 759
+        min_cluster_size = max(8, int(n_unique * 0.010))  # ~11 для 759
         min_samples = max(3, int(min_cluster_size * 0.3))  # ~3-4
         n_neighbors = min(25, max(15, n_unique // 40))     # ~19
     else:
