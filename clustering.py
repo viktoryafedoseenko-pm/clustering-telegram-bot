@@ -50,7 +50,7 @@ def generate_cluster_name_yandex(texts_sample, max_retries=2):
         return None
     
     # Берём 5 примеров (до 100 символов каждый)
-    examples = "\n".join([f"- {t[:100]}" for t in texts_sample[:5]])
+    examples = "\n".join([f"- {t[:100]}" for t in texts_sample[:8]])
     
     prompt = f"""Ты анализируешь обращения в техподдержку образовательной платформы Яндекс Практикум.
 
@@ -77,7 +77,7 @@ def generate_cluster_name_yandex(texts_sample, max_retries=2):
         "modelUri": f"gpt://{YANDEX_FOLDER_ID}/yandexgpt-lite/latest",
         "completionOptions": {
             "stream": False,
-            "temperature": 0.3,  # Низкая температура для стабильности
+            "temperature": 0.4,  # Низкая температура для стабильности
             "maxTokens": 30      # Короткое название
         },
         "messages": [
