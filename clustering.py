@@ -107,13 +107,25 @@ def clean_html(text: str) -> str:
     text = re.sub(r'\b\d+[a-z%]+\b', ' ', text, flags=re.IGNORECASE)
     text = re.sub(r'#[0-9a-f]{3,6}\b', ' ', text, flags=re.IGNORECASE)
     
-    # 4. Удаляем повторяющиеся числа и CSS-слова
+    # 4. Удаляем HTML/CSS слова-мусор (НОВЫЙ БЛОК!)
+    html_junk = [
+        r'\bcontent\b', r'\bnoreferrer\b', r'\bnoopener\b', r'\bsecure\b',
+        r'\bnps\b', r'\bimportant\b', r'\bnbsp\b', r'\bbgcolor\b',
+        r'\bradius\b', r'\bdisplay\b', r'\bblock\b', r'\binline\b',
+        r'\bhidden\b', r'\bvisible\b', r'\bopacity\b', r'\boverflow\b',
+        r'\btarget\b', r'\bblank\b', r'\brel\b', r'\bhref\b', r'\bsrc\b',
+        r'\balt\b', r'\btitle\b', r'\bclass\b', r'\bid\b',
+    ]
+    for pattern in html_junk:
+        text = re.sub(pattern, ' ', text, flags=re.IGNORECASE)
+    
+    # 5. Удаляем повторяющиеся числа и CSS-слова
     text = re.sub(r'\b(\d+)\s+\1\b', '', text) 
     text = re.sub(r'\b\d+px\b', '', text, flags=re.I)
     text = re.sub(r'\bcaps\b', '', text, flags=re.I)
-    text = re.sub(r'\bstart\b', '', text, flags=re.I)  # "5px start"
+    text = re.sub(r'\bstart\b', '', text, flags=re.I)
     
-    # 5. Чистим пробелы
+    # 6. Чистим пробелы
     text = re.sub(r'\s+', ' ', text).strip()
     
     return text
