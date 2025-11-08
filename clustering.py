@@ -24,6 +24,113 @@ from umap import UMAP
 from hdbscan import HDBSCAN
 from sklearn.feature_extraction.text import CountVectorizer  # +++
 import pymorphy2
+import os
+import requests
+from dotenv import load_dotenv
+
+load_dotenv()
+
+# ========== YandexGPT Integration ==========
+
+YANDEX_API_KEY = os.getenv('YANDEX_API_KEY')
+YANDEX_FOLDER_ID = os.getenv('YANDEX_FOLDER_ID')
+
+def generate_cluster_name_yandex(texts_sample, max_retries=2):
+    """
+    Генерация названия кластера через YandexGPT
+    
+    Args:
+        texts_sample: Список примеров текстов из кластера
+        max_retries: Количество попыток при ошибке
+        
+    Returns:
+        str: Название кластера или None при ошибке
+    """
+    if not YANDEX_API_KEY or not YANDEX_FOLDER_ID:
+        return None
+    
+    # Берём 5 примеров (до 100 символов каждый)
+    examples = "\n".join([f"- {t[:100]}" for t in texts_sample[:5]])
+    
+    prompt = f"""Ты анализируешь обращения в техподдержку образовательной платформы Яндекс Практикум.
+
+    Вот примеры обращений из одной тематической группы:
+    {examples}
+
+    Задание: Придумай короткое и точное название (2-4 слова) для этой категории обращений.
+
+    Требования:
+    - На русском языке
+    - Без эмодзи и спецсимволов
+    - Описывает суть проблемы или запроса
+    - Примеры хороших названий: "Получение диплома", "Проблемы с оплатой", "Налоговый вычет", "Технические ошибки"
+
+    Название:"""
+
+    url = "https://llm.api.cloud.yandex.net/foundationModels/v1/completion"
+    headers = {
+        "Authorization": f"Api-Key {YANDEX_API_KEY}",
+        "Content-Type": "application/json"
+    }
+    
+    data = {
+        "modelUri": f"gpt://{YANDEX_FOLDER_ID}/yandexgpt-lite/latest",
+        "completionOptions": {
+            "stream": False,
+            "temperature": 0.3,  # Низкая температура для стабильности
+            "maxTokens": 30      # Короткое название
+        },
+        "messages": [
+            {
+                "role": "user",
+                "text": prompt
+            }
+        ]
+    }
+    
+    for attempt in range(max_retries):
+        try:
+            response = requests.post(url, headers=headers, json=data, timeout=10)
+            
+            if response.status_code == 200:
+                result = response.json()
+                text = result['result']['alternatives'][0]['message']['text'].strip()
+                
+                # Очистка от лишнего
+                text = text.replace('Название:', '').strip()
+                text = text.strip('"').strip("'")
+                
+                # Проверка длины (не больше 50 символов)
+                if len(text) > 50:
+                    text = text[:50]
+                
+                return text
+            
+            elif response.status_code == 429:  # Rate limit
+                print(f"⚠️ Rate limit, ждём 2 секунды...")
+                import time
+                time.sleep(2)
+                continue
+            
+            else:
+                print(f"⚠️ YandexGPT ошибка {response.status_code}: {response.text}")
+                return None
+                
+        except requests.exceptions.Timeout:
+            print(f"⚠️ YandexGPT timeout (попытка {attempt + 1}/{max_retries})")
+            if attempt < max_retries - 1:
+                import time
+                time.sleep(1)
+            continue
+            
+        except Exception as e:
+            print(f"⚠️ YandexGPT ошибка: {e}")
+            return None
+    
+    return None
+
+# ==========================================
+
 
 # Расширенный список стоп-слов
 HTML_STOP_WORDS = {
@@ -390,30 +497,47 @@ def clusterize_texts(file_path: str, progress_callback=None):
         raise
 
     # --- Названия (с дополнительной фильтрацией) ---
-    sync_log("📝 Генерация названий...")
+    if YANDEX_API_KEY and YANDEX_FOLDER_ID:
+        sync_log("📝 Генерация названий с помощью YandexGPT...")
+    else:
+        sync_log("📝 Генерация названий...")
+
     info = topic_model.get_topic_info()
     cluster_names = {}
     
     def get_name(t):
+        """Генерация названия кластера (с использованием YandexGPT)"""
         if t == -1:
             return "🔹 Прочее"
         
         topic_words = topic_model.get_topic(t)
         if not topic_words:
-            return f"Cluster {t}"
+            cluster_names[t] = f"Кластер {t}"
+            return f"Кластер {t}"
         
-        # Фильтруем через новую функцию
+        # 1. Пробуем YandexGPT (если настроен)
+        if YANDEX_API_KEY and YANDEX_FOLDER_ID:
+            # Получаем тексты кластера
+            cluster_texts = [unique_texts[i] for i, cluster_id in enumerate(topics) if cluster_id == t]
+            
+            if cluster_texts:
+                yandex_name = generate_cluster_name_yandex(cluster_texts)
+                if yandex_name:
+                    print(f"✨ Кластер {t}: {yandex_name}")
+                    cluster_names[t] = yandex_name
+                    return yandex_name
+        
+        # 2. Fallback: используем BERTopic слова
         filtered = filter_topic_words(topic_words, ALL_STOP_WORDS)
         
         if filtered:
-            # Берём топ-3 слова
             name = " • ".join([w for w, s in filtered[:3]])
             cluster_names[t] = name
             return name
         
-        # Если после фильтрации ничего не осталось
         cluster_names[t] = f"Кластер {t}"
         return f"Кластер {t}"
+
 
     df["cluster_id"] = topics
     df["cluster_name"] = [get_name(t) for t in topics]
