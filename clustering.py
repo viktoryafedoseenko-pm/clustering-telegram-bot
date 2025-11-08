@@ -55,22 +55,38 @@ COMMON_RUSSIAN_STOP_WORDS = {
     'будет', 'было', 'были', 'буду', 'будем', 'будете', 'будут',
 }
 
-# Новый блок — добавь после COMMON_RUSSIAN_STOP_WORDS
 DOMAIN_STOP_WORDS = {
     # Техническое
     'usedesk', 'ticket', 'comment', 'answer', 'email', 'support', 'mail', 'mailto',
-    'yandex', 'practicum', 'практикум', 'яндекс',
+    'yandex', 'practicum', 'практикум', 'яндекс', 'практикума',
     
     # Email
     'sent', 'iphone', 'ipad', 'android', 'отправлено', 'from', 'gmail',
     'почта', 'почту', 'письмо', 'письма',
     
-    # Даты (убираем июля, спринт из кластеров!)
+    # Даты
     'января', 'февраля', 'марта', 'апреля', 'мая', 'июня',
     'июля', 'августа', 'сентября', 'октября', 'ноября', 'декабря',
     'понедельник', 'вторник', 'среда', 'четверг', 'пятница', 'суббота', 'воскресенье',
-    'сегодня', 'вчера', 'завтра', 'спринт',
+    'сегодня', 'вчера', 'завтра',
+    
+    # HTML/CSS (расширенный список!)
+    'content', 'noreferrer', 'noopener', 'secure', 'nps', 'important', 'nbsp',
+    'bgcolor', 'radius', 'display', 'block', 'inline', 'hidden', 'visible',
+    'opacity', 'overflow', 'target', 'blank', 'rel', 'href', 'src', 'alt',
+    'title', 'class', 'style', 'font', 'margin', 'padding', 'border',
+    'width', 'height', 'px', 'caps', 'start', 'word',
+    
+    # UTM и аналитика
+    'utm_source', 'utm_medium', 'utm_campaign', 'utm_content', 'utm_term',
+    
+    # Общие фразы
+    'мне', 'меня', 'вам', 'вас', 'нас', 'тебя', 'его', 'её',
+    'можно', 'нужно', 'хочу', 'могу', 'хотел', 'хотела', 'надо',
+    'сейчас', 'теперь', 'уже', 'ещё', 'вопрос', 'помочь', 'помогите',
+    'доброе', 'утро', 'вечер', 'ночь',  # "доброе утро • утро • доброе"
 }
+
 
 STOP_WORDS = COMMON_RUSSIAN_STOP_WORDS.union(HTML_STOP_WORDS).union(DOMAIN_STOP_WORDS)
 
@@ -258,13 +274,17 @@ def clusterize_texts(file_path: str, progress_callback=None):
     sync_log("🤖 Загрузка модели...")
     model = SentenceTransformer("paraphrase-multilingual-MiniLM-L12-v2")
 
-    # +++ Фильтрация стоп-слов +++
+    # Объединяем все стоп-слова для vectorizer
+    ALL_STOP_WORDS = STOP_WORDS.union(DOMAIN_STOP_WORDS).union(HTML_STOP_WORDS)
+
     vectorizer_model = CountVectorizer(
         ngram_range=(1, 2),
-        stop_words=list(STOP_WORDS),
-        min_df=3,  # слово должно встречаться минимум в 3 документах
-        max_df=0.6  # игнорируем слова, встречающиеся в >60% документов
+        stop_words=list(ALL_STOP_WORDS),  # ← Используем ВСЕ стоп-слова!
+        min_df=3,      # Слово должно быть минимум в 3 документах
+        max_df=0.5,    # Игнорируем слова, встречающиеся в >50% текстов (было 0.6)
+        max_features=1000  # ← НОВОЕ: ограничиваем словарь 1000 важными словами
     )
+
 
     # --- Параметры для ~1000 текстов ---
     # Адаптивная настройка под размер данных
@@ -311,17 +331,36 @@ def clusterize_texts(file_path: str, progress_callback=None):
     )
     
     topic_model = BERTopic(
-        embedding_model=model,
-        umap_model=umap_model,
-        hdbscan_model=hdbscan_model,
-        vectorizer_model=vectorizer_model,  # +++ ДОБАВЛЕНО +++
-        language="multilingual",
-        calculate_probabilities=False,
-        verbose=False,
-        top_n_words=10,
-        n_gram_range=(1, 2),
-        min_topic_size=min_cluster_size
-    )
+    embedding_model=model,
+    umap_model=umap_model,
+    hdbscan_model=hdbscan_model,
+    vectorizer_model=vectorizer_model,
+    language="multilingual",
+    calculate_probabilities=False,
+    verbose=False,
+    top_n_words=10,
+    n_gram_range=(1, 2),
+    min_topic_size=min_cluster_size
+)
+
+    # Фильтр стоп-слов
+    def filter_topic_words(topic_words, banned_words):
+        """Фильтрует слова кластера от мусора"""
+        filtered = []
+        for word, score in topic_words:
+            w_lower = word.lower()
+            # Строгая проверка
+            if (w_lower not in banned_words and
+                len(word) > 2 and
+                len(word) < 20 and
+                not word.isdigit() and
+                not re.match(r'^\d+[a-z%]*$', word, re.I) and
+                not re.match(r'^[a-z]{1,3}$', word)):  # короткие англ слова
+                filtered.append((word, score))
+            if len(filtered) >= 5:  # Берём топ-5 слов
+                break
+        return filtered
+
 
     # --- Кластеризация ---
     sync_log(f"🎯 Кластеризация (min_size={min_cluster_size})...")
@@ -342,30 +381,20 @@ def clusterize_texts(file_path: str, progress_callback=None):
         
         topic_words = topic_model.get_topic(t)
         if not topic_words:
-            cluster_names[t] = f"Cluster {t}"
             return f"Cluster {t}"
         
-        filtered = []
-        for word, score in topic_words:
-            w_lower = word.lower()
-            # Жесткая фильтрация
-            if (w_lower not in STOP_WORDS and
-                w_lower not in HTML_STOP_WORDS and
-                len(word) > 2 and
-                not word.isdigit() and
-                not re.match(r'^\d+[a-z%]*$', word, re.I) and
-                not re.match(r'^[a-z]{1,3}$', word)):  # короткие англ слова
-                filtered.append(word)
-            if len(filtered) >= 3:
-                break
+        # Фильтруем через новую функцию
+        filtered = filter_topic_words(topic_words, ALL_STOP_WORDS)
         
         if filtered:
-            name = " • ".join(filtered[:3])
+            # Берём топ-3 слова
+            name = " • ".join([w for w, s in filtered[:3]])
             cluster_names[t] = name
             return name
         
-        cluster_names[t] = f"Cluster {t}"
-        return f"Cluster {t}"
+        # Если после фильтрации ничего не осталось
+        cluster_names[t] = f"Кластер {t}"
+        return f"Кластер {t}"
 
     df["cluster_id"] = topics
     df["cluster_name"] = [get_name(t) for t in topics]
