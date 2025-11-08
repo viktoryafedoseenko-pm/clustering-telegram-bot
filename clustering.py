@@ -542,6 +542,44 @@ def clusterize_texts(file_path: str, progress_callback=None):
     df["cluster_id"] = topics
     df["cluster_name"] = [get_name(t) for t in topics]
 
+    # === НОРМАЛИЗАЦИЯ НАЗВАНИЙ КЛАСТЕРОВ ===
+    import re
+
+    def normalize_cluster_name(name: str) -> str:
+        """Убирает кавычки, эмодзи и приводит к единому стилю"""
+        if not isinstance(name, str):
+            return ""
+        name = name.lower().strip()
+        name = name.replace('«', '').replace('»', '').replace('"', '').replace("'", "")
+        name = name.replace('🔹', '').replace('•', '')
+        name = re.sub(r'[^а-яёa-z0-9\s]', ' ', name)  # только буквы/цифры/пробелы
+        name = re.sub(r'\s+', ' ', name).strip()
+
+        # простые замены, чтобы убрать очевидные дубли
+        replacements = {
+            'платежи': 'оплата',
+            'оплата и платежи': 'оплата',
+            'оплата картой': 'оплата',
+            'оплата курса': 'оплата',
+            'оплата обучения': 'оплата',
+            'дипломы': 'диплом',
+            'сертификаты': 'диплом',
+            'документы и анкеты': 'документы',
+            'документы и дипломы': 'документы',
+            'диплом и анкеты': 'документы',
+            'диплом и аккаунты': 'документы',
+            'технические проблемы': 'технические ошибки',
+        }
+        for old, new in replacements.items():
+            name = name.replace(old, new)
+
+        return name
+
+    df["cluster_name"] = df["cluster_name"].apply(normalize_cluster_name)
+    df["cluster_name"] = df["cluster_name"].str.title()
+    # === КОНЕЦ НОРМАЛИЗАЦИИ ===
+
+
     # --- Метрики ---
     stats = calculate_metrics(topics, cluster_names, topic_model)
     sync_log(f"✅ {stats['n_clusters']} кластеров за {time.time()-start_time:.1f}с")
