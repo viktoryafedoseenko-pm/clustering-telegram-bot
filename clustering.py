@@ -579,6 +579,24 @@ def clusterize_texts(file_path: str, progress_callback=None):
     df["cluster_name"] = df["cluster_name"].str.title()
     # === КОНЕЦ НОРМАЛИЗАЦИИ ===
 
+    # === МАСТЕР-КАТЕГОРИИ ===
+    MASTER_CATEGORIES = {
+        "Финансовые вопросы": ["оплата", "платеж", "подписк"],
+        "Документы и дипломы": ["диплом", "документ", "сертификат", "анкета"],
+        "Технические проблемы": ["техническ", "ошибк", "сбой", "сервер"],
+        "Учебные вопросы": ["курс", "обучен", "помощь"],
+        "Прочее": ["прочее", "неясн"]
+    }
+
+    def assign_master_category(name):
+        n = name.lower()
+        for cat, keywords in MASTER_CATEGORIES.items():
+            if any(k in n for k in keywords):
+                return cat
+        return "Прочее"
+
+    df["master_category"] = df["cluster_name"].apply(assign_master_category)
+    # === КОНЕЦ МАСТЕР-КАТЕГОРИЙ ===
 
     # --- Метрики ---
     stats = calculate_metrics(topics, cluster_names, topic_model)
