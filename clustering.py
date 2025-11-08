@@ -81,29 +81,43 @@ def clean_html(text: str) -> str:
     if not isinstance(text, str):
         return ""
     
-
+    # 1. Удаляем email-подписи и шаблоны
+    email_patterns = [
+        r'Отправлено с (iPhone|iPad|Android|мобильн\w+)',
+        r'Sent from (my )?iPhone',
+        r'--\s*Отправлено из.*?Почты',
+        r'Служба образовательной поддержки.*',
+        r'T_I_C_K_E_T_I_D_\d+',
+        r'U_D_I_D_\d+',
+        r'Оцените.*нашу поддержку:.*',
+        r'Это письмо содержит ответы на опрос.*',
+        r'Яндекс не несёт ответственности.*',
+    ]
+    for pattern in email_patterns:
+        text = re.sub(pattern, ' ', text, flags=re.IGNORECASE | re.DOTALL)
+    
+    # 2. HTML-теги и entities
     text = re.sub(r'<[^>]+>', ' ', text)
     text = re.sub(r'&[a-z]+;', ' ', text)
     text = re.sub(r'&#\d+;', ' ', text)
+    
+    # 3. CSS-стили (усиленная версия)
     text = re.sub(r'[a-z\-]+\s*:\s*[^;"]+;?', ' ', text, flags=re.IGNORECASE)
     text = re.sub(r'\w+\s*=\s*["\'][^"\']*["\']', ' ', text)
     text = re.sub(r'\b\d+[a-z%]+\b', ' ', text, flags=re.IGNORECASE)
     text = re.sub(r'#[0-9a-f]{3,6}\b', ' ', text, flags=re.IGNORECASE)
-    text = re.sub(r'\b(rgb|rgba|url|var|calc|auto|inherit|initial|unset)\b', ' ', text, flags=re.IGNORECASE)
+    
+    # 4. Удаляем повторяющиеся числа и CSS-слова
     text = re.sub(r'\b(\d+)\s+\1\b', '', text) 
-    text = re.sub(r'\b\d{3}\b', '', text)
-    text = re.sub(r'\b\w*amp\w*\b', '', text, flags=re.I)
-    text = re.sub(r'\b\w*comment_id\w*\b', '', text, flags=re.I)
-    text = re.sub(r'\b\w*answer\w*\b', '', text, flags=re.I)    
-    text = re.sub(r'\b\w*px\w*\b', '', text, flags=re.I)
-    text = re.sub(r'\bpracticum\s+yandex\b', '', text, flags=re.I)
-    text = re.sub(r'\bhttps?\s+\w+\b', '', text, flags=re.I)
-    text = re.sub(r'\bwhite\s+space\b', '', text, flags=re.I)
-    text = re.sub(r'\bspace\s+pre\b', '', text, flags=re.I)
-    text = re.sub(r'\btext\s+(family|align|decoration)\b', '', text, flags=re.I)
+    text = re.sub(r'\b\d+px\b', '', text, flags=re.I)
+    text = re.sub(r'\bcaps\b', '', text, flags=re.I)
+    text = re.sub(r'\bstart\b', '', text, flags=re.I)  # "5px start"
+    
+    # 5. Чистим пробелы
     text = re.sub(r'\s+', ' ', text).strip()
-
+    
     return text
+
 
 def preprocess_text(text: str) -> str:
     """Улучшенная предобработка"""
