@@ -245,6 +245,9 @@ async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
         insight_text = generate_insight_yandex(stats)
         if insight_text:
             stats_message += f"\n\n💡 <b>Инсайт:</b>\n{html.escape(insight_text)}"
+
+        # Шаг 6: Финальное сообщение
+        stats_message += "\n\n✨ Готово! Хотите проанализировать другие тексты? Отправляйте новый файл — я готов!"
         
         # Информируем, что почти готово
         await progress_msg.edit_text(
@@ -317,15 +320,26 @@ def format_statistics(stats):
     # Топ-3 кластера (с экранированием названий)
     if 'top_clusters' in stats and stats['top_clusters']:
         msg += "🏆 <b>Топ-3 кластера:</b>\n"
-        for i, cluster in enumerate(stats['top_clusters'][:3], 1):
+        
+        # Собираем уникальные названия для избежания дублей
+        seen_names = set()
+        unique_clusters = []
+        
+        for cluster in stats['top_clusters']:
+            if cluster['name'] not in seen_names:
+                seen_names.add(cluster['name'])
+                unique_clusters.append(cluster)
+            if len(unique_clusters) >= 3:
+                break
+        
+        for i, cluster in enumerate(unique_clusters, 1):
             emoji = ["1️⃣", "2️⃣", "3️⃣"][i-1]
             # Экранируем название кластера
             safe_name = html.escape(cluster['name'])
             msg += f"{emoji} <i>{safe_name}</i> — {cluster['size']} текстов\n"
         msg += "\n"
     
-    msg += "📎 Полные результаты в прикрепленном файле\n\n"
-    msg += "✨ Готово! Хотите проанализировать другие тексты? Отправляйте новый файл — я готов!"
+    msg += "📎 Полные результаты в прикрепленном файле\n"
     
     return msg
 
