@@ -65,8 +65,8 @@ def generate_insight_yandex(stats):
 
 Задание:
 1. Кратко (до 3 предложений) объясни, что видно из этих данных.
-2. Используй деловой тон, без эмодзи.
-3. Сделай фокус на смысле — какие инсайты может извлечь продукт-менеджер.
+2. Используй профессиональный бизнес-тон, без эмодзи.
+3. Обрати внимание на самое важное.
 """
 
     url = "https://llm.api.cloud.yandex.net/foundationModels/v1/completion"
@@ -79,8 +79,8 @@ def generate_insight_yandex(stats):
         "modelUri": f"gpt://{YANDEX_FOLDER_ID}/yandexgpt-lite/latest",
         "completionOptions": {
             "stream": False,
-            "temperature": 0.5,
-            "maxTokens": 80
+            "temperature": 0.6,
+            "maxTokens": 120
         },
         "messages": [{"role": "user", "text": prompt}]
     }
