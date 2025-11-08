@@ -150,7 +150,14 @@ def clean_html(text: str) -> str:
     text = re.sub(r'\bcaps\b', '', text, flags=re.I)
     text = re.sub(r'\bstart\b', '', text, flags=re.I)
     
-    # 6. Чистим пробелы
+    # 6. Удаляем подчёркивания (из форм)
+    text = re.sub(r'_{3,}', ' ', text)  # _______
+    text = re.sub(r'_+', ' ', text)     # Любые подчёркивания
+    
+    # 7. Удаляем "Технические данные:"
+    text = re.sub(r'Технические данные:.*', '', text, flags=re.I)
+
+    # 8. Чистим пробелы
     text = re.sub(r'\s+', ' ', text).strip()
     
     return text
@@ -308,7 +315,7 @@ def clusterize_texts(file_path: str, progress_callback=None):
     elif n_unique < 5000:
         # Для 500-5000 текстов (твой случай: 759)
         min_cluster_size = max(8, int(n_unique * 0.010))  # ~11 для 759
-        min_samples = max(3, int(min_cluster_size * 0.3))  # ~3-4
+        min_samples = max(2, int(min_cluster_size * 0.25))  # ~3-4
         n_neighbors = min(25, max(15, n_unique // 40))     # ~19
     else:
         # Для больших датасетов (30к+)
