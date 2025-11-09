@@ -5,6 +5,7 @@ import asyncio
 from dotenv import load_dotenv
 import html
 import pandas as pd
+from metrics import ClusteringMetrics
 from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 from clustering import clusterize_texts
@@ -326,6 +327,14 @@ async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     parse_mode='HTML',
                     reply_markup=keyboard
                 )
+        
+        # Отправка статистики
+        if 'quality_metrics' in stats:
+            quality_report = ClusteringMetrics.format_report(stats['quality_metrics'])
+            await update.message.reply_text(
+                quality_report,
+                parse_mode='HTML'
+            )
 
         # Удаление прогресс-сообщения
         await progress_msg.delete()
