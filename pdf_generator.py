@@ -3,7 +3,8 @@ import io
 from pathlib import Path
 import pandas as pd
 import matplotlib
-matplotlib.use('Agg')  # Без GUI
+matplotlib.use('Agg') 
+import logging
 import matplotlib.pyplot as plt
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
@@ -16,6 +17,8 @@ from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.lib import colors
 from config import FONT_PATH, MAX_PDF_SIZE_MB
+
+logger = logging.getLogger(__name__)
 
 # Регистрация шрифта
 pdfmetrics.registerFont(TTFont('DejaVuSans', str(FONT_PATH)))
@@ -76,43 +79,62 @@ class PDFReportGenerator:
         Returns:
             bool: True если успешно, False если превышен лимит размера
         """
-        doc = SimpleDocTemplate(
-            output_path,
-            pagesize=A4,
-            rightMargin=72,
-            leftMargin=72,
-            topMargin=72,
-            bottomMargin=18
-        )
+        import logging
+        logger = logging.getLogger(__name__)
         
-        story = []
-        
-        # 1. Титульная страница
-        story.extend(self._create_title_page())
-        story.append(PageBreak())
-        
-        # 2. Статистика
-        story.extend(self._create_statistics_page())
-        story.append(PageBreak())
-        
-        # 3. Графики
-        story.extend(self._create_charts_page())
-        story.append(PageBreak())
-        
-        # 4. Топ-10 кластеров
-        story.extend(self._create_clusters_pages())
-        
-        # Сборка PDF
-        doc.build(story)
-        
-        # Проверка размера
-        size_mb = Path(output_path).stat().st_size / (1024 * 1024)
-        if size_mb > MAX_PDF_SIZE_MB:
-            Path(output_path).unlink()
+        try:
+            logger.info(f"📄 Starting PDF generation: {output_path}")
+            
+            doc = SimpleDocTemplate(
+                output_path,
+                pagesize=A4,
+                rightMargin=72,
+                leftMargin=72,
+                topMargin=72,
+                bottomMargin=18
+            )
+            
+            story = []
+            
+            # 1. Титульная страница
+            logger.info("📝 Creating title page...")
+            story.extend(self._create_title_page())
+            story.append(PageBreak())
+            
+            # 2. Статистика
+            logger.info("📊 Creating statistics page...")
+            story.extend(self._create_statistics_page())
+            story.append(PageBreak())
+            
+            # 3. Графики
+            logger.info("📈 Creating charts...")
+            story.extend(self._create_charts_page())
+            story.append(PageBreak())
+            
+            # 4. Топ-10 кластеров
+            logger.info("🏷️ Creating cluster pages...")
+            story.extend(self._create_clusters_pages())
+            
+            # Сборка PDF
+            logger.info("🔨 Building PDF...")
+            doc.build(story)
+            
+            # Проверка размера
+            size_mb = Path(output_path).stat().st_size / (1024 * 1024)
+            logger.info(f"📦 PDF size: {size_mb:.2f} MB")
+            
+            if size_mb > MAX_PDF_SIZE_MB:
+                logger.warning(f"⚠️ PDF too large: {size_mb:.2f} MB > {MAX_PDF_SIZE_MB} MB")
+                Path(output_path).unlink()
+                return False
+            
+            logger.info("✅ PDF generated successfully")
+            return True
+            
+        except Exception as e:
+            logger.error(f"❌ PDF generation error: {e}", exc_info=True)
             return False
         
-        return True
-    
     def _create_title_page(self):
         """Титульная страница"""
         elements = []
