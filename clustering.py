@@ -205,7 +205,7 @@ def generate_cluster_name_yandex(texts_sample, max_retries=2):
     return None
 
 
-# Полный список стоп-слов
+# Cписок стоп-слов
 HTML_STOP_WORDS = {
     'style', 'div', 'width', 'height', 'br', 'span', 'class', 'id', 'href', 'src',
     'px', 'pt', 'em', 'rem', 'color', 'background', 'font', 'size', 'border',
@@ -275,22 +275,6 @@ DOMAIN_STOP_WORDS = {
 }
 
 STOP_WORDS = COMMON_RUSSIAN_STOP_WORDS.union(HTML_STOP_WORDS).union(DOMAIN_STOP_WORDS)
-
-MINIMAL_STOP_WORDS = {
-    # Служебные
-    'на', 'в', 'и', 'с', 'у', 'о', 'по', 'за', 'от', 'из', 'к', 'до',
-    'что', 'как', 'это', 'так', 'да', 'нет', 'не',
-    
-    # Вежливость
-    'добрый', 'здравствуйте', 'спасибо', 'пожалуйста',
-    
-    # HTML/техническое
-    'usedesk', 'ticket', 'email', 'nbsp', 'amp', 'quot',
-    'width', 'height', 'style', 'div', 'span', 'br',
-    
-    # Яндекс Практикум (если не важны)
-    'yandex', 'practicum', 'яндекс', 'практикум',
-}
 
 morph = pymorphy2.MorphAnalyzer()
 
@@ -558,10 +542,10 @@ def clusterize_texts(file_path: str, progress_callback=None):
     # Предобработка
     sync_log("🧹 Предобработка...")
     preprocessed_texts = [preprocess_text(t) for t in raw_texts]
-
+    
     valid_indices = [i for i, t in enumerate(preprocessed_texts) 
-                    if t.strip() and len(t.split()) >= 2]
-
+                     if t.strip() and len(t.split()) >= 2]
+    
     if len(valid_indices) <= 3:
         df["cluster_id"] = 0
         df["cluster_name"] = "Все тексты"
@@ -571,55 +555,43 @@ def clusterize_texts(file_path: str, progress_callback=None):
 
     preprocessed_texts = [preprocessed_texts[i] for i in valid_indices]
     df = df.iloc[valid_indices].reset_index(drop=True)
-
+    
     # Удаление дубликатов по очищенным текстам
     sync_log("🔍 Удаление дубликатов...")
     df['_preprocessed'] = preprocessed_texts
     df = df.drop_duplicates(subset='_preprocessed', keep="first").reset_index(drop=True)
     preprocessed_texts = df['_preprocessed'].tolist()
-    df = df.drop(columns=['_preprocessed'])
+    df = df.drop(columns=['_preprocessed'])  # Убираем служебную колонку
     unique_texts = preprocessed_texts
     n_unique = len(unique_texts)
     sync_log(f"✨ Уникальных: {n_unique}")
 
-    # 🆕 Диагностика (ПОСЛЕ удаления дубликатов!)
-    print(f"\n🔍 ДИАГНОСТИКА ПЕРЕД VECTORIZER:")
-    print(f"   Уникальных текстов: {n_unique}")
-    print(f"   Пример текста: '{unique_texts[0][:100]}'" if unique_texts else "ПУСТО")
-
-    # Средняя длина
-    avg_length = sum(len(t.split()) for t in unique_texts) / len(unique_texts) if unique_texts else 0
-    print(f"   Средняя длина текста: {avg_length:.1f} слов")
-
-    # Считаем уникальные слова из ВСЕХ unique_texts
-    all_words = []
-    for text in unique_texts:
-        all_words.extend(text.split())
-
-    unique_words = set(all_words)
-    total_words = len(all_words)
-    print(f"   Всего слов: {total_words}")
-    print(f"   Уникальных слов: {len(unique_words)}")
-    print(f"   Примеры слов: {list(unique_words)[:30]}")
-
-    # Проверяем пустые тексты
-    empty_count = sum(1 for t in unique_texts if len(t.split()) == 0)
-    print(f"   Пустых текстов: {empty_count}")
-
-    # Модель эмбеддингов
+    # Модель
     sync_log("🤖 Загрузка модели...")
     model = SentenceTransformer("paraphrase-multilingual-MiniLM-L12-v2")
 
-    # Адаптивная настройка кластеризации
+    # Объединяем все стоп-слова для vectorizer
+    ALL_STOP_WORDS = STOP_WORDS.union(DOMAIN_STOP_WORDS).union(HTML_STOP_WORDS)
+
+    vectorizer_model = CountVectorizer(
+        ngram_range=(1, 2),
+        stop_words=list(ALL_STOP_WORDS), 
+        min_df=2,     
+        max_df=0.7, 
+        max_features=1500 
+    )
+
+    # Адаптивная настройка под размер данных
     if n_unique < 500:
         # Для маленьких датасетов
         min_cluster_size = 5
         min_samples = 2
         n_neighbors = 10
     elif n_unique < 5000:
-        min_cluster_size = max(25, int(n_unique * 0.030))
-        min_samples = max(6, int(min_cluster_size * 0.30))
-        n_neighbors = min(35, max(25, n_unique // 25))
+        # Для 500-5000 текстов (твой случай: 759)
+        min_cluster_size = max(10, int(n_unique * 0.012))  
+        min_samples = max(2, int(min_cluster_size * 0.25))  # ~3-4
+        n_neighbors = min(20, max(15, n_unique // 40))     # ~25
     else:
         # Для больших датасетов (30к+)
         min_cluster_size = max(50, int(n_unique * 0.002))  # ~60 для 30к
@@ -633,6 +605,7 @@ def clusterize_texts(file_path: str, progress_callback=None):
     print(f"   n_neighbors = {n_neighbors}")
 
     n_components = 10
+
 
     umap_model = UMAP(
         n_neighbors=n_neighbors,
@@ -648,14 +621,14 @@ def clusterize_texts(file_path: str, progress_callback=None):
         min_samples=min_samples,
         metric='euclidean',
         cluster_selection_method='eom',
-        prediction_data=True,
-        # cluster_selection_epsilon=0.3
+        prediction_data=True
     )
     
     topic_model = BERTopic(
         embedding_model=model,
         umap_model=umap_model,
         hdbscan_model=hdbscan_model,
+        vectorizer_model=vectorizer_model,
         language="multilingual",
         calculate_probabilities=False,
         verbose=False,
@@ -681,6 +654,7 @@ def clusterize_texts(file_path: str, progress_callback=None):
             if len(filtered) >= 5:  # Берём топ-5 слов
                 break
         return filtered
+
 
     # Кластеризация
     sync_log(f"🎯 Кластеризация (min_size={min_cluster_size})...")
