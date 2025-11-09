@@ -18,7 +18,7 @@ class ClusteringMetrics:
     """Вычисление и интерпретация метрик качества кластеризации"""
     
     @staticmethod
-    def calculate(embeddings: np.ndarray, labels: np.ndarray) -> Dict[str, float]:
+    def calculate(embeddings, labels) -> Dict[str, float]:
         """
         Вычисляет все метрики качества
         
@@ -29,19 +29,28 @@ class ClusteringMetrics:
         Returns:
             dict с метриками
         """
+        # Преобразуем в numpy arrays (на всякий случай)
+        embeddings = np.asarray(embeddings)
+        labels = np.asarray(labels)
+        
         # Убираем шум (кластер -1) для метрик
         mask = labels != -1
         embeddings_clean = embeddings[mask]
         labels_clean = labels[mask]
         
         # Проверка: достаточно ли данных
-        if len(np.unique(labels_clean)) < 2:
+        unique_labels = np.unique(labels_clean)
+        
+        if len(unique_labels) < 2:
             logger.warning("⚠️ Недостаточно кластеров для расчёта метрик")
+            noise_count = np.count_nonzero(labels == -1)
+            noise_ratio = (noise_count / len(labels) * 100) if len(labels) > 0 else 0.0
+            
             return {
                 'silhouette_score': 0.0,
                 'davies_bouldin_index': 0.0,
                 'calinski_harabasz_score': 0.0,
-                'noise_ratio': (labels == -1).sum() / len(labels) * 100
+                'noise_ratio': round(noise_ratio, 2)
             }
         
         try:
@@ -55,27 +64,28 @@ class ClusteringMetrics:
             ch_score = calinski_harabasz_score(embeddings_clean, labels_clean)
             
             # 4. Доля шума
-            noise_ratio = (labels == -1).sum() / len(labels) * 100
+            noise_count = np.count_nonzero(labels == -1)
+            noise_ratio = (noise_count / len(labels) * 100) if len(labels) > 0 else 0.0
             
             metrics = {
-                'silhouette_score': round(silhouette, 3),
-                'davies_bouldin_index': round(db_index, 3),
-                'calinski_harabasz_score': round(ch_score, 1),
-                'noise_ratio': round(noise_ratio, 2)
+                'silhouette_score': round(float(silhouette), 3),
+                'davies_bouldin_index': round(float(db_index), 3),
+                'calinski_harabasz_score': round(float(ch_score), 1),
+                'noise_ratio': round(float(noise_ratio), 2)
             }
             
             logger.info(f"📊 Метрики качества: {metrics}")
             return metrics
             
         except Exception as e:
-            logger.error(f"❌ Ошибка расчёта метрик: {e}")
+            logger.error(f"❌ Ошибка расчёта метрик: {e}", exc_info=True)
             return {
                 'silhouette_score': 0.0,
                 'davies_bouldin_index': 0.0,
                 'calinski_harabasz_score': 0.0,
                 'noise_ratio': 0.0
             }
-    
+        
     @staticmethod
     def interpret(metrics: Dict[str, float]) -> Dict[str, Tuple[str, str]]:
         """
