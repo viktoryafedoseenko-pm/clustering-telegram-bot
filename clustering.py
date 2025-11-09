@@ -309,7 +309,7 @@ def clean_html(text: str) -> str:
     text = re.sub(r'\b\d+[a-z%]+\b', ' ', text, flags=re.IGNORECASE)
     text = re.sub(r'#[0-9a-f]{3,6}\b', ' ', text, flags=re.IGNORECASE)
     
-    # 4. Удаляем HTML/CSS слова-мусор (НОВЫЙ БЛОК!)
+    # 4. Удаляем HTML/CSS слова-мусор
     html_junk = [
         r'\bcontent\b', r'\bnoreferrer\b', r'\bnoopener\b', r'\bsecure\b',
         r'\bnps\b', r'\bimportant\b', r'\bnbsp\b', r'\bbgcolor\b',
@@ -328,8 +328,8 @@ def clean_html(text: str) -> str:
     text = re.sub(r'\bstart\b', '', text, flags=re.I)
     
     # 6. Удаляем подчёркивания (из форм)
-    text = re.sub(r'_{3,}', ' ', text)  # _______
-    text = re.sub(r'_+', ' ', text)     # Любые подчёркивания
+    text = re.sub(r'_{3,}', ' ', text) 
+    text = re.sub(r'_+', ' ', text)     
     
     # 7. Удаляем "Технические данные:"
     text = re.sub(r'Технические данные:.*', '', text, flags=re.I)
@@ -589,7 +589,7 @@ def clusterize_texts(file_path: str, progress_callback=None):
         n_neighbors = 10
     elif n_unique < 5000:
         # Для 500-5000 текстов (твой случай: 759)
-        min_cluster_size = max(10, int(n_unique * 0.012))  
+        min_cluster_size = max(10, int(n_unique * 0.020))  
         min_samples = max(2, int(min_cluster_size * 0.25))  # ~3-4
         n_neighbors = min(20, max(15, n_unique // 40))     # ~25
     else:
