@@ -149,10 +149,10 @@ class PDFReportGenerator:
         
         # Общая статистика
         stats_data = [
-            ["📝 Всего текстов:", f"{self.stats['total_texts']}"],
-            ["🎯 Найдено кластеров:", f"{self.stats['n_clusters']}"],
-            ["📊 Средний размер:", f"{self.stats['avg_cluster_size']:.0f} текстов"],
-            ["🔹 Шум (прочее):", f"{self.stats['noise_percent']:.1f}%"],
+            ["Всего текстов:", f"{self.stats['total_texts']}"],
+            ["Найдено кластеров:", f"{self.stats['n_clusters']}"],
+            ["Средний размер:", f"{self.stats['avg_cluster_size']:.0f} текстов"],
+            ["Шум (прочее):", f"{self.stats['noise_percent']:.1f}%"],
         ]
         
         table = Table(stats_data, colWidths=[3*inch, 2*inch])
@@ -174,7 +174,7 @@ class PDFReportGenerator:
         """Страница со статистикой"""
         elements = []
         
-        heading = Paragraph("📈 Распределение кластеров", self.styles['CustomHeading'])
+        heading = Paragraph("Распределение кластеров", self.styles['CustomHeading'])
         elements.append(heading)
         elements.append(Spacer(1, 0.2*inch))
         
@@ -214,7 +214,7 @@ class PDFReportGenerator:
         """Страница с графиками"""
         elements = []
         
-        heading = Paragraph("📊 Визуализация", self.styles['CustomHeading'])
+        heading = Paragraph("Визуализация", self.styles['CustomHeading'])
         elements.append(heading)
         elements.append(Spacer(1, 0.2*inch))
         
