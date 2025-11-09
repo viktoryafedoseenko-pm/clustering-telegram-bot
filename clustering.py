@@ -634,11 +634,32 @@ def clusterize_texts(file_path: str, progress_callback=None):
 
             # 🩹 Гарантируем корректное соотношение
             if isinstance(max_df, float):
-                if max_df * n_docs < min_df:
-                    max_df = min(1.0, min_df / n_docs + 0.05)
-            elif isinstance(max_df, int) and max_df < min_df:
-                max_df = min_df + 1
-
+                max_df_docs = int(max_df * n_docs)
+                
+                # Если max_df меньше min_df, корректируем
+                if max_df_docs < min_df:
+                    # Вариант 1: Поднять max_df
+                    min_df = 1
+                    max_df = min(1.0, (min_df + 1) / n_docs + 0.1)
+                    
+                    # Если всё равно не помогло (экстремально мало документов)
+                    if max_df * n_docs < min_df:
+                        max_df = 1.0  # Отключаем фильтр max_df
+            
+            elif isinstance(max_df, int):
+                # Если max_df - целое число
+                if max_df < min_df:
+                    min_df = 1
+                    max_df = max(2, n_docs)  # Берём все документы
+            
+            # Финальная проверка
+            if isinstance(max_df, float):
+                assert max_df * n_docs >= min_df, \
+                    f"Некорректные параметры: max_df={max_df} * {n_docs} = {max_df * n_docs} < min_df={min_df}"
+            else:
+                assert max_df >= min_df, \
+                    f"Некорректные параметры: max_df={max_df} < min_df={min_df}"
+            
             return min_df, max_df
 
         # === основной код ===
