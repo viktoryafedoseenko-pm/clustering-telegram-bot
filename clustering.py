@@ -32,8 +32,9 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-#YandexGPT Integration
+morph = pymorphy2.MorphAnalyzer()
 
+#YandexGPT Integration
 YANDEX_API_KEY = os.getenv('YANDEX_API_KEY')
 YANDEX_FOLDER_ID = os.getenv('YANDEX_FOLDER_ID')
 
@@ -369,6 +370,86 @@ def preprocess_text(text: str) -> str:
     
     return ' '.join(words)
 
+def merge_similar_clusters(topics, topic_model, df, similarity_threshold=0.75):
+    """
+    Объединяет семантически близкие кластеры
+    
+    Args:
+        topics: массив cluster_id для каждого текста
+        topic_model: обученная BERTopic модель
+        df: датафрейм с текстами
+        similarity_threshold: порог схожести (0-1), выше = строже
+    
+    Returns:
+        topics: обновлённый массив cluster_id
+        merge_map: dict {old_id: new_id}
+    """
+    from sklearn.metrics.pairwise import cosine_similarity
+    import numpy as np
+    
+    # Получаем уникальные кластеры (без шума)
+    unique_clusters = [c for c in set(topics) if c != -1]
+    
+    if len(unique_clusters) < 2:
+        return topics, {}
+    
+    # Получаем embeddings центров кластеров
+    cluster_centers = {}
+    
+    for cluster_id in unique_clusters:
+        cluster_indices = [i for i, c in enumerate(topics) if c == cluster_id]
+        if len(cluster_indices) == 0:
+            continue
+        
+        # Берём тексты кластера
+        cluster_texts = [df.iloc[i, 0] for i in cluster_indices[:20]]  # макс 20 для скорости
+        
+        # Получаем embeddings
+        embeddings = topic_model.embedding_model.encode(cluster_texts)
+        
+        # Центр кластера = среднее embeddings
+        cluster_centers[cluster_id] = np.mean(embeddings, axis=0)
+    
+    # Вычисляем матрицу схожести между кластерами
+    cluster_ids = list(cluster_centers.keys())
+    center_vectors = np.array([cluster_centers[cid] for cid in cluster_ids])
+    
+    similarity_matrix = cosine_similarity(center_vectors)
+    
+    # Находим пары для объединения
+    merge_map = {}  # {old_id: new_id}
+    
+    for i in range(len(cluster_ids)):
+        for j in range(i + 1, len(cluster_ids)):
+            similarity = similarity_matrix[i][j]
+            
+            if similarity >= similarity_threshold:
+                cluster_i = cluster_ids[i]
+                cluster_j = cluster_ids[j]
+                
+                # Объединяем в кластер с меньшим ID
+                target = min(cluster_i, cluster_j)
+                source = max(cluster_i, cluster_j)
+                
+                # Проверяем, не был ли source уже переназначен
+                if source in merge_map:
+                    continue
+                
+                merge_map[source] = target
+                print(f"🔗 Объединяем кластеры {source} → {target} (схожесть: {similarity:.2f})")
+    
+    # Применяем объединение
+    if merge_map:
+        topics_merged = topics.copy()
+        for i, cluster_id in enumerate(topics):
+            if cluster_id in merge_map:
+                topics_merged[i] = merge_map[cluster_id]
+        
+        print(f"✅ Объединено {len(merge_map)} пар кластеров")
+        return topics_merged, merge_map
+    
+    return topics, {}
+
 
 def calculate_metrics(topics, cluster_names, topic_model):
     """Расширенный расчет метрик с уникальными названиями кластеров"""
@@ -573,6 +654,15 @@ def clusterize_texts(file_path: str, progress_callback=None):
     except Exception as e:
         sync_log(f"⚠️ Ошибка: {e}")
         raise
+
+    # 🆕 Применяем объединение
+    sync_log("🔗 Объединение похожих кластеров...")
+    topics, merge_map = merge_similar_clusters(
+        topics, 
+        topic_model, 
+        pd.DataFrame({0: unique_texts}),
+        similarity_threshold=0.70
+    )
 
     # Названия (с дополнительной фильтрацией)
     if YANDEX_API_KEY and YANDEX_FOLDER_ID:
