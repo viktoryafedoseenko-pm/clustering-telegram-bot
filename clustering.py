@@ -646,16 +646,6 @@ def clusterize_texts(file_path: str, progress_callback=None):
             max_features=1000
         )
 
-    vectorizer_model = CountVectorizer(
-        ngram_range=(1, 2),
-        stop_words=list(MINIMAL_STOP_WORDS),
-        min_df=min_df,
-        max_df=max_df,
-        max_features=1000
-    )
-    
-    print(f"🎯 Vectorizer параметры: min_df={min_df}, max_df={max_df}")
-
     # Адаптивная настройка кластеризации
     if n_unique < 500:
         # Для маленьких датасетов
