@@ -1,3 +1,7 @@
+python-telegram-bot==20.7
+reportlab==4.0.7
+matplotlib==3.8.2
+Pillow==10.1.0
 anyio==4.11.0
 beautifulsoup4==4.12.3
 bertopic==0.15.0
