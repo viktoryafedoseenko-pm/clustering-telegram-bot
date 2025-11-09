@@ -663,7 +663,7 @@ def clusterize_texts(file_path: str, progress_callback=None):
         sync_log(f"⚠️ Ошибка: {e}")
         raise
 
-    # 🆕 Применяем объединение
+    # Применяем объединение
     sync_log("🔗 Объединение похожих кластеров...")
     topics, merge_map = merge_similar_clusters(
         topics, 
@@ -671,6 +671,13 @@ def clusterize_texts(file_path: str, progress_callback=None):
         pd.DataFrame({0: unique_texts}),
         similarity_threshold=0.70
     )
+
+    # Обновляем topic_model.get_topic_info() после объединения
+    # BERTopic нужно пересчитать топики
+    if merge_map:
+        sync_log("📊 Пересчёт статистики после объединения...")
+        # Обновляем топики в модели
+        topic_model.topics_ = topics
 
     # Названия (с дополнительной фильтрацией)
     if YANDEX_API_KEY and YANDEX_FOLDER_ID:
@@ -680,6 +687,14 @@ def clusterize_texts(file_path: str, progress_callback=None):
 
     info = topic_model.get_topic_info()
     cluster_names = {}
+
+    # Генерируем названия только для уникальных кластеров
+    unique_clusters = set(topics)  # Используем обновлённые topics!
+
+    for cluster_id in unique_clusters:
+        if cluster_id == -1:
+            cluster_names[cluster_id] = "Прочее"
+            continue
 
     # Сначала генерируем названия для всех уникальных кластеров
     unique_clusters = set(topics)

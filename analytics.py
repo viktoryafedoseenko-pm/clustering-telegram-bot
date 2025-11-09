@@ -72,18 +72,27 @@ async def generate_detailed_report(
 
 def _generate_extended_csv(df: pd.DataFrame, cluster_names: dict, output_path: str):
     """Генерирует расширенную статистику в CSV"""
-    cluster_stats = df.groupby('cluster_id').agg({
-        'cluster_name': 'first'
-    }).reset_index()
     
-    # Размер кластера
-    cluster_stats['size'] = df['cluster_id'].value_counts()
+    # 🆕 Используем value_counts напрямую
+    cluster_counts = df['cluster_id'].value_counts().sort_values(ascending=False)
     
-    # Процент
-    cluster_stats['percent'] = (cluster_stats['size'] / len(df) * 100).round(2)
+    # Создаём таблицу
+    stats_data = []
     
-    # Сортировка по размеру
-    cluster_stats = cluster_stats.sort_values('size', ascending=False)
+    for cluster_id, size in cluster_counts.items():
+        # Название кластера
+        name = cluster_names.get(cluster_id, f"Кластер {cluster_id}")
+        
+        # Процент
+        percent = (size / len(df) * 100).round(2)
+        
+        stats_data.append({
+            'cluster_id': cluster_id,
+            'cluster_name': name,
+            'size': size,
+            'percent': percent
+        })
     
     # Сохранение
+    cluster_stats = pd.DataFrame(stats_data)
     cluster_stats.to_csv(output_path, index=False, encoding='utf-8')
