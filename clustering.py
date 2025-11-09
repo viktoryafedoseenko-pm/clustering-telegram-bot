@@ -205,7 +205,7 @@ def generate_cluster_name_yandex(texts_sample, max_retries=2):
     return None
 
 
-# Cписок стоп-слов
+# Полный список стоп-слов
 HTML_STOP_WORDS = {
     'style', 'div', 'width', 'height', 'br', 'span', 'class', 'id', 'href', 'src',
     'px', 'pt', 'em', 'rem', 'color', 'background', 'font', 'size', 'border',
@@ -275,6 +275,22 @@ DOMAIN_STOP_WORDS = {
 }
 
 STOP_WORDS = COMMON_RUSSIAN_STOP_WORDS.union(HTML_STOP_WORDS).union(DOMAIN_STOP_WORDS)
+
+MINIMAL_STOP_WORDS = {
+    # Служебные
+    'на', 'в', 'и', 'с', 'у', 'о', 'по', 'за', 'от', 'из', 'к', 'до',
+    'что', 'как', 'это', 'так', 'да', 'нет', 'не',
+    
+    # Вежливость
+    'добрый', 'здравствуйте', 'спасибо', 'пожалуйста',
+    
+    # HTML/техническое
+    'usedesk', 'ticket', 'email', 'nbsp', 'amp', 'quot',
+    'width', 'height', 'style', 'div', 'span', 'br',
+    
+    # Яндекс Практикум (если не важны)
+    'yandex', 'practicum', 'яндекс', 'практикум',
+}
 
 morph = pymorphy2.MorphAnalyzer()
 
@@ -573,15 +589,28 @@ def clusterize_texts(file_path: str, progress_callback=None):
     # Объединяем все стоп-слова для vectorizer
     ALL_STOP_WORDS = STOP_WORDS.union(DOMAIN_STOP_WORDS).union(HTML_STOP_WORDS)
 
+    # Адаптивная настройка векторизации
+    if n_unique < 100:
+        min_df = 1
+        max_df = 0.9
+    elif n_unique < 500:
+        min_df = 2
+        max_df = 0.8
+    else:
+        min_df = 2  # было 3
+        max_df = 0.7  # было 0.5
+
     vectorizer_model = CountVectorizer(
         ngram_range=(1, 2),
-        stop_words=list(ALL_STOP_WORDS), 
-        min_df=2,     
-        max_df=0.7, 
-        max_features=1500 
+        stop_words=list(MINIMAL_STOP_WORDS),
+        min_df=min_df,
+        max_df=max_df,
+        max_features=1000
     )
+    
+    print(f"🎯 Vectorizer параметры: min_df={min_df}, max_df={max_df}")
 
-    # Адаптивная настройка под размер данных
+    # Адаптивная настройка кластеризации
     if n_unique < 500:
         # Для маленьких датасетов
         min_cluster_size = 5
