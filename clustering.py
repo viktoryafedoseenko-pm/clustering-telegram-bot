@@ -600,6 +600,52 @@ def clusterize_texts(file_path: str, progress_callback=None):
         min_df = 2  # было 3
         max_df = 0.7  # было 0.5
 
+    # ДИАГНОСТИКА: проверяем предобработанные тексты
+    print(f"\n🔍 ДИАГНОСТИКА VECTORIZER:")
+    print(f"   Количество текстов: {len(preprocessed_texts)}")
+    print(f"   Пример текста: {preprocessed_texts[0][:100] if preprocessed_texts else 'ПУСТО'}")
+    print(f"   Средняя длина текста: {sum(len(t.split()) for t in preprocessed_texts) / len(preprocessed_texts):.1f} слов")
+
+    # Считаем уникальные слова
+    all_words = []
+    for text in preprocessed_texts[:100]:  # Берём первые 100 для скорости
+        all_words.extend(text.split())
+
+    unique_words = set(all_words)
+    print(f"   Уникальных слов (первые 100 текстов): {len(unique_words)}")
+    print(f"   Примеры слов: {list(unique_words)[:20]}")
+
+    # Проверяем, не все ли тексты пустые
+    non_empty = [t for t in preprocessed_texts if len(t.split()) > 0]
+    print(f"   Непустых текстов: {len(non_empty)} из {len(preprocessed_texts)}")
+
+    print(f"   Параметры: min_df={min_df}, max_df={max_df}")
+    print(f"   min_df в документах: {min_df}")
+    print(f"   max_df в документах: {int(max_df * len(preprocessed_texts))}")
+    print()
+
+    # 🆕 FALLBACK: если слишком мало слов — используем дефолтные параметры
+    if len(unique_words) < 50:
+        print("⚠️ ВНИМАНИЕ: Слишком мало уникальных слов после предобработки!")
+        print("   Используем минимальные ограничения для vectorizer")
+        min_df = 1
+        max_df = 1.0  # Отключаем верхний порог
+        vectorizer_model = CountVectorizer(
+            ngram_range=(1, 2),
+            stop_words=None,  # 🆕 Временно отключаем стоп-слова
+            min_df=min_df,
+            max_df=max_df,
+            max_features=1000
+        )
+    else:
+        vectorizer_model = CountVectorizer(
+            ngram_range=(1, 2),
+            stop_words=list(MINIMAL_STOP_WORDS),
+            min_df=min_df,
+            max_df=max_df,
+            max_features=1000
+        )
+
     vectorizer_model = CountVectorizer(
         ngram_range=(1, 2),
         stop_words=list(MINIMAL_STOP_WORDS),
