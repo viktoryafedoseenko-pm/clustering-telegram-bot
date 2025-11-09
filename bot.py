@@ -8,6 +8,10 @@ from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 from clustering import clusterize_texts
 from clustering import generate_insight_yandex
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+from cache_manager import cache
+from analytics import generate_detailed_report
+from config import TEMP_DIR
 
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
@@ -132,6 +136,7 @@ async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
     progress_msg = None
     file_path = None
     result_path = None
+    cache_key = None
     
     try:
         # Проверка размера файла
@@ -249,6 +254,25 @@ async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # Шаг 6: Финальное сообщение
         stats_message += "\n\n✨ Готово! Хотите проанализировать другие тексты? Отправляйте новый файл — я готов!"
         
+        # Сохраняем в кэш (перед отправкой файла)
+        df_cached = pd.read_csv(result_path, encoding='utf-8')
+        
+        cache_data = {
+            'df': df_cached,
+            'stats': stats,
+            'cluster_names': {  # Извлекаем из датафрейма
+                row['cluster_id']: row['cluster_name']
+                for _, row in df_cached[['cluster_id', 'cluster_name']].drop_duplicates().iterrows()
+            },
+            'file_name': update.message.document.file_name
+        }
+        
+        cache_key = cache.save(
+            user_id=update.effective_user.id,
+            file_name=update.message.document.file_name,
+            data=cache_data
+        )
+
         # Информируем, что почти готово
         await progress_msg.edit_text(
             "⏳ <b>Почти готово...</b>\n\n"
@@ -258,18 +282,25 @@ async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
             parse_mode='HTML'
         )
         
-        # Отправка результата: CSV + осмысленный анализ
+        # Показываем кнопки выбора
+        keyboard = InlineKeyboardMarkup([
+            [InlineKeyboardButton("📊 Детальный отчёт PDF", callback_data=f"pdf_{cache_key}")],
+            [InlineKeyboardButton("❌ Только CSV", callback_data="csv_only")]
+        ])
+
+        # Отправка результата: CSV + кнопки
         with open(result_path, 'rb') as result_file:
             await update.message.reply_document(
                 document=result_file,
                 filename=os.path.basename(result_path),
                 caption=stats_message,
-                parse_mode='HTML'
+                parse_mode='HTML',
+                reply_markup=keyboard
             )
         
         # Удаление сообщения о прогрессе
         await progress_msg.delete()
-        
+
     except ValueError as e:
         error_msg = f"⚠️ <b>Проблема с данными</b>\n\n{html.escape(str(e))}\n\n💡 Проверьте формат файла"
         if progress_msg:
@@ -302,11 +333,10 @@ async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
         try:
             if file_path and os.path.exists(file_path):
                 os.remove(file_path)
-            if result_path and os.path.exists(result_path):
+            if result_path and os.path.exists(result_path) and not cache_key:
                 os.remove(result_path)
         except:
             pass
-
 
 def format_statistics(stats):
     """Форматирование статистики в красивое сообщение (с экранированием HTML)"""
@@ -343,6 +373,127 @@ def format_statistics(stats):
     
     return msg
 
+# 🆕 НОВЫЙ HANDLER ДЛЯ CALLBACK
+async def handle_pdf_request(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Обработчик запроса детального PDF отчёта"""
+    query = update.callback_query
+    await query.answer()
+    
+    callback_data = query.data
+    
+    if callback_data == "csv_only":
+        await query.edit_message_reply_markup(reply_markup=None)
+        await query.message.reply_text(
+            "✅ Отлично! CSV файл уже у вас.\n\n"
+            "Хотите проанализировать другие тексты? Отправляйте новый файл!"
+        )
+        return
+    
+    # Извлекаем cache_key
+    if not callback_data.startswith("pdf_"):
+        await query.message.reply_text("❌ Ошибка: неверный формат данных")
+        return
+    
+    cache_key = callback_data[4:]  # Убираем "pdf_"
+    
+    # Показываем прогресс
+    progress_msg = await query.message.reply_text(
+        "⏳ <b>Генерирую детальный отчёт...</b>\n\n"
+        "📊 Создание графиков\n"
+        "📄 Формирование PDF\n"
+        "📈 Подготовка расширенной статистики\n\n"
+        "Это займёт 10-30 секунд...",
+        parse_mode='HTML'
+    )
+    
+    try:
+        # Генерация с таймаутом
+        result = await asyncio.wait_for(
+            generate_detailed_report(cache_key, update.effective_user.id),
+            timeout=120  # 2 минуты макс
+        )
+        
+        if not result:
+            await progress_msg.edit_text(
+                "❌ <b>Ошибка генерации отчёта</b>\n\n"
+                "Возможные причины:\n"
+                "• Данные устарели (прошло больше часа)\n"
+                "• Превышен размер отчёта (макс. 10 МБ)\n\n"
+                "💡 Попробуйте загрузить файл заново",
+                parse_mode='HTML'
+            )
+            return
+        
+        pdf_path, csv_path = result
+        
+        # Отправляем файлы
+        await progress_msg.edit_text(
+            "✅ <b>Отчёт готов!</b>\n\n"
+            "📤 Отправляю файлы...",
+            parse_mode='HTML'
+        )
+        
+        # PDF
+        with open(pdf_path, 'rb') as pdf_file:
+            await query.message.reply_document(
+                document=pdf_file,
+                filename=f"detailed_report_{cache_key[:8]}.pdf",
+                caption=(
+                    "📊 <b>Детальный отчёт PDF</b>\n\n"
+                    "Содержит:\n"
+                    "• Полную статистику\n"
+                    "• Графики распределения\n"
+                    "• Топ-10 кластеров с примерами\n"
+                    "• Ключевые слова по каждой теме"
+                ),
+                parse_mode='HTML'
+            )
+        
+        # Extended CSV
+        with open(csv_path, 'rb') as csv_file:
+            await query.message.reply_document(
+                document=csv_file,
+                filename=f"extended_stats_{cache_key[:8]}.csv",
+                caption="📈 <b>Расширенная статистика</b>\n\nРаспределение по всем кластерам с процентами",
+                parse_mode='HTML'
+            )
+        
+        await progress_msg.delete()
+        
+        # Убираем кнопки из исходного сообщения
+        await query.edit_message_reply_markup(reply_markup=None)
+        
+        # Финальное сообщение
+        await query.message.reply_text(
+            "✨ <b>Готово!</b>\n\n"
+            "Хотите проанализировать другие тексты?\n"
+            "Отправляйте новый файл — я готов! 🚀",
+            parse_mode='HTML'
+        )
+        
+        # Очистка временных файлов
+        try:
+            Path(pdf_path).unlink()
+            Path(csv_path).unlink()
+        except:
+            pass
+        
+    except asyncio.TimeoutError:
+        await progress_msg.edit_text(
+            "⏱ <b>Превышено время ожидания</b>\n\n"
+            "Генерация отчёта заняла слишком много времени.\n"
+            "Попробуйте с меньшим файлом или повторите позже.",
+            parse_mode='HTML'
+        )
+    
+    except Exception as e:
+        logger.error(f"PDF generation error: {e}", exc_info=True)
+        await progress_msg.edit_text(
+            "❌ <b>Ошибка генерации отчёта</b>\n\n"
+            "Попробуйте повторить запрос через минуту",
+            parse_mode='HTML'
+        )
+
 
 async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE):
     """Глобальный обработчик ошибок"""
@@ -357,6 +508,10 @@ def main():
     application.add_handler(CommandHandler("about", about_command))
     application.add_handler(CommandHandler("feedback", feedback_command))
     application.add_handler(MessageHandler(filters.Document.ALL, handle_file))
+
+    from telegram.ext import CallbackQueryHandler
+    application.add_handler(CallbackQueryHandler(handle_pdf_request))
+
     application.add_error_handler(error_handler)
     
     logger.info("🤖 Бот запущен и готов к работе!")
