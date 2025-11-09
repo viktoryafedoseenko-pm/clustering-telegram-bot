@@ -11,14 +11,18 @@ from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.units import inch
 from reportlab.platypus import (
     SimpleDocTemplate, Paragraph, Spacer, Image, 
-    Table, TableStyle, PageBreak
+    Table, TableStyle, PageBreak, PageTemplate, Frame
 )
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.lib import colors
+from reportlab.platypus import HRFlowable
 from config import FONT_PATH, MAX_PDF_SIZE_MB
+from datetime import datetime
 
 logger = logging.getLogger(__name__)
+
+date_str = datetime.now().strftime("%d.%m.%Y %H:%M")
 
 # Регистрация шрифта
 pdfmetrics.registerFont(TTFont('DejaVuSans', str(FONT_PATH)))
@@ -26,6 +30,16 @@ pdfmetrics.registerFont(TTFont('DejaVuSans', str(FONT_PATH)))
 # Настройка matplotlib для кириллицы
 matplotlib.rcParams['font.family'] = 'DejaVu Sans'
 matplotlib.rcParams['axes.unicode_minus'] = False
+
+def footer(canvas, doc):
+    canvas.saveState()
+    canvas.setFont('DejaVuSans', 8)
+    canvas.setFillColor(colors.grey)
+    canvas.drawString(
+        inch, 0.5 * inch,
+        f"Страница {doc.page} | Отчёт по кластеризации"
+    )
+    canvas.restoreState()
 
 class PDFReportGenerator:
     """Генератор PDF отчётов по кластеризации"""
@@ -91,7 +105,7 @@ class PDFReportGenerator:
                 rightMargin=72,
                 leftMargin=72,
                 topMargin=72,
-                bottomMargin=18
+                bottomMargin=40
             )
             
             story = []
@@ -117,7 +131,7 @@ class PDFReportGenerator:
             
             # Сборка PDF
             logger.info("🔨 Building PDF...")
-            doc.build(story)
+            doc.build(story, onFirstPage=footer, onLaterPages=footer)
             
             # Проверка размера
             size_mb = Path(output_path).stat().st_size / (1024 * 1024)
@@ -147,6 +161,21 @@ class PDFReportGenerator:
         elements.append(title)
         elements.append(Spacer(1, 0.5*inch))
         
+        # Дата
+        elements.append(Paragraph(
+            f"<i>Дата создания: {date_str}</i>",
+            self.styles['CustomBody']
+        ))
+
+        from reportlab.platypus import HRFlowable
+        elements.append(HRFlowable(
+            width="80%",
+            thickness=2,
+            color=colors.HexColor('#4A90E2'),
+            spaceBefore=20,
+            spaceAfter=20
+        ))
+
         # Общая статистика
         stats_data = [
             ["Всего текстов:", f"{self.stats['total_texts']}"],
@@ -196,14 +225,30 @@ class PDFReportGenerator:
         
         table = Table(table_data, colWidths=[0.7*inch, 3*inch, 1*inch, 0.8*inch])
         table.setStyle(TableStyle([
-            ('FONT', (0, 0), (-1, -1), 'DejaVuSans', 9),
-            ('BACKGROUND', (0, 0), (-1, 0), colors.grey),
+            # Заголовок
+            ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#4A90E2')),
             ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
-            ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
             ('FONTNAME', (0, 0), (-1, 0), 'DejaVuSans'),
-            ('FONTSIZE', (0, 0), (-1, 0), 10),
-            ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
-            ('GRID', (0, 0), (-1, -1), 1, colors.lightgrey),
+            ('FONTSIZE', (0, 0), (-1, 0), 11),
+            ('FONTNAME', (0, 1), (-1, -1), 'DejaVuSans'),
+            ('FONTSIZE', (0, 1), (-1, -1), 9),
+            
+            # Выравнивание
+            ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+            ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+            
+            # Зебра-стиль
+            ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.HexColor('#F5F5F5')]),
+            
+            # Рамки
+            ('GRID', (0, 0), (-1, -1), 0.5, colors.lightgrey),
+            ('BOX', (0, 0), (-1, -1), 2, colors.HexColor('#4A90E2')),
+            
+            # Отступы
+            ('TOPPADDING', (0, 0), (-1, -1), 10),
+            ('BOTTOMPADDING', (0, 0), (-1, -1), 10),
+            ('LEFTPADDING', (0, 0), (-1, -1), 8),
+            ('RIGHTPADDING', (0, 0), (-1, -1), 8),
         ]))
         
         elements.append(table)
@@ -223,7 +268,7 @@ class PDFReportGenerator:
         if pie_img:
             elements.append(pie_img)
             elements.append(Spacer(1, 0.3*inch))
-        
+
         # Столбчатая диаграмма
         bar_img = self._create_bar_chart()
         if bar_img:
@@ -242,12 +287,19 @@ class PDFReportGenerator:
         sizes = cluster_dist.values
         
         fig, ax = plt.subplots(figsize=(8, 6))
+
+        colors_palette = [
+            '#4A90E2', '#50C878', '#FFD700', '#FF6B6B', '#9B59B6',
+            '#3498DB', '#E67E22', '#1ABC9C', '#E74C3C', '#34495E'
+        ]
+
         ax.pie(
             sizes,
             labels=labels,
             autopct='%1.1f%%',
             startangle=90,
-            colors=plt.cm.Set3.colors
+            colors=colors_palette,
+            textprops={'fontsize': 9}
         )
         ax.axis('equal')
         plt.title('Топ-10 кластеров по размеру', fontsize=14, pad=20)
