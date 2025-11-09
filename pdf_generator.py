@@ -141,7 +141,7 @@ class PDFReportGenerator:
         
         # Заголовок
         title = Paragraph(
-            "📊 Отчёт по кластеризации текстов",
+            "Отчёт по кластеризации текстов",
             self.styles['CustomTitle']
         )
         elements.append(title)
