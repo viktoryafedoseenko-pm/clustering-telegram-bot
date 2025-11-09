@@ -486,8 +486,8 @@ def clusterize_texts(file_path: str, progress_callback=None):
     vectorizer_model = CountVectorizer(
         ngram_range=(1, 2),
         stop_words=list(ALL_STOP_WORDS), 
-        min_df=3,     
-        max_df=0.5, 
+        min_df=2,     
+        max_df=0.8, 
         max_features=1000 
     )
 
