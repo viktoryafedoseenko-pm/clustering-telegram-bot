@@ -671,22 +671,22 @@ def clusterize_texts(file_path: str, progress_callback=None):
         method="document"
     )
 
-    # Объединение кластеров
-    sync_log("🔗 Объединение похожих кластеров...")
-    topics, merge_map = merge_similar_clusters(
-        topics, 
-        topic_model, 
-        pd.DataFrame({0: unique_texts}),
-        similarity_threshold=0.70
-    )
+    # Объединение кластеров (временно отключили)
+    # sync_log("🔗 Объединение похожих кластеров...")
+    # topics, merge_map = merge_similar_clusters(
+    #     topics, 
+    #     topic_model, 
+    #     pd.DataFrame({0: unique_texts}),
+    #     similarity_threshold=0.70
+    # )
 
     # Обновляем topic_model.get_topic_info() после объединения
     # BERTopic нужно пересчитать топики
-    if merge_map:
-        sync_log("📊 Пересчёт статистики после объединения...")
-        # Обновляем топики в модели
-        topic_model.topics_ = topics
-        sync_log(f"✅ Объединено {len(merge_map)} пар кластеров")
+    # if merge_map:
+    #      sync_log("📊 Пересчёт статистики после объединения...")
+    #     # Обновляем топики в модели
+    #    topic_model.topics_ = topics
+    #    sync_log(f"✅ Объединено {len(merge_map)} пар кластеров")
 
     quality_metrics = ClusteringMetrics.calculate(embeddings, topics)
     sync_log(f"✅ Метрики: Silhouette={quality_metrics['silhouette_score']:.3f}, DB={quality_metrics['davies_bouldin_index']:.3f}")
