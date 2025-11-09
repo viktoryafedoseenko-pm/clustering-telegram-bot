@@ -588,10 +588,9 @@ def clusterize_texts(file_path: str, progress_callback=None):
         min_samples = 2
         n_neighbors = 10
     elif n_unique < 5000:
-        # Для 500-5000 текстов (твой случай: 759)
-        min_cluster_size = max(10, int(n_unique * 0.012))  
-        min_samples = max(2, int(min_cluster_size * 0.25))  # ~3-4
-        n_neighbors = min(20, max(15, n_unique // 40))     # ~25
+        min_cluster_size = max(12, int(n_unique * 0.015))
+        min_samples = 2 
+        n_neighbors = min(35, max(25, n_unique // 25)) 
     else:
         # Для больших датасетов (30к+)
         min_cluster_size = max(50, int(n_unique * 0.002))  # ~60 для 30к
@@ -621,7 +620,8 @@ def clusterize_texts(file_path: str, progress_callback=None):
         min_samples=min_samples,
         metric='euclidean',
         cluster_selection_method='eom',
-        prediction_data=True
+        prediction_data=True,
+        cluster_selection_epsilon=0.3
     )
     
     topic_model = BERTopic(
