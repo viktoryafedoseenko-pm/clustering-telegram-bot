@@ -252,9 +252,16 @@ async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if insight_text:
             stats_message += f"\n\n💡 <b>Инсайт:</b>\n{html.escape(insight_text)}"
 
-        # Шаг 6: Финальное сообщение
-        stats_message += "\n\n✨ Готово! Хотите проанализировать другие тексты? Отправляйте новый файл — я готов!"
+        # Шаг 6: Базовая статистика
+        stats_message = format_statistics(stats)
         
+        # Шаг 7: Формирование инсайта
+        insight_text = generate_insight_yandex(stats)
+        if insight_text:
+            stats_message += f"\n\n💡 <b>Инсайт:</b>\n{html.escape(insight_text)}"
+
+        stats_message += "\n\n✨ Готово! Хотите проанализировать другие тексты? Отправляйте новый файл — я готов!"
+
         # Сохраняем в кэш (перед отправкой файла)
         df_cached = pd.read_csv(result_path, encoding='utf-8')
         
@@ -289,17 +296,38 @@ async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
             [InlineKeyboardButton("❌ Только CSV", callback_data="csv_only")]
         ])
 
-        # Отправка результата: CSV + кнопки
-        with open(result_path, 'rb') as result_file:
-            await update.message.reply_document(
-                document=result_file,
-                filename=os.path.basename(result_path),
-                caption=stats_message,
-                parse_mode='HTML',
-                reply_markup=keyboard
+        MAX_CAPTION_LENGTH = 1000  # С запасом (лимит 1024)
+
+        if len(stats_message) > MAX_CAPTION_LENGTH:
+            # Короткий caption для файла
+            short_caption = "✅ <b>Кластеризация завершена!</b>\n\n📎 Подробная статистика ниже"
+            
+            with open(result_path, 'rb') as result_file:
+                await update.message.reply_document(
+                    document=result_file,
+                    filename=os.path.basename(result_path),
+                    caption=short_caption,
+                    parse_mode='HTML',
+                    reply_markup=keyboard
+                )
+            
+            # Статистика отдельно
+            await update.message.reply_text(
+                stats_message,
+                parse_mode='HTML'
             )
-        
-        # Удаление сообщения о прогрессе
+        else:
+            # Если короткая — всё в одном
+            with open(result_path, 'rb') as result_file:
+                await update.message.reply_document(
+                    document=result_file,
+                    filename=os.path.basename(result_path),
+                    caption=stats_message,
+                    parse_mode='HTML',
+                    reply_markup=keyboard
+                )
+
+        # Удаление прогресс-сообщения
         await progress_msg.delete()
 
     except ValueError as e:
