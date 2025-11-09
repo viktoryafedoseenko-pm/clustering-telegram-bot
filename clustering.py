@@ -28,6 +28,7 @@ import os
 import requests
 import json
 from dotenv import load_dotenv
+from metrics import ClusteringMetrics
 
 
 load_dotenv()
@@ -663,7 +664,14 @@ def clusterize_texts(file_path: str, progress_callback=None):
         sync_log(f"⚠️ Ошибка: {e}")
         raise
 
-    # Применяем объединение
+    # 🆕 ПОЛУЧАЕМ EMBEDDINGS ДЛЯ МЕТРИК
+    sync_log("📊 Вычисление метрик качества...")
+    embeddings = topic_model._extract_embeddings(
+        unique_texts,
+        method="document"
+    )
+
+    # Объединение кластеров
     sync_log("🔗 Объединение похожих кластеров...")
     topics, merge_map = merge_similar_clusters(
         topics, 
@@ -678,6 +686,10 @@ def clusterize_texts(file_path: str, progress_callback=None):
         sync_log("📊 Пересчёт статистики после объединения...")
         # Обновляем топики в модели
         topic_model.topics_ = topics
+        sync_log(f"✅ Объединено {len(merge_map)} пар кластеров")
+
+    quality_metrics = ClusteringMetrics.calculate(embeddings, topics)
+    sync_log(f"✅ Метрики: Silhouette={quality_metrics['silhouette_score']:.3f}, DB={quality_metrics['davies_bouldin_index']:.3f}")
 
     # Названия (с дополнительной фильтрацией)
     if YANDEX_API_KEY and YANDEX_FOLDER_ID:
@@ -845,4 +857,15 @@ def clusterize_texts(file_path: str, progress_callback=None):
     out = file_path.replace(".csv", "_clustered.csv")
     df.to_csv(out, index=False, encoding='utf-8')
 
+    stats = calculate_metrics(topics, cluster_names, topic_model)
+    
+    # Добавляем метрики качества в stats
+    stats['quality_metrics'] = quality_metrics
+    
+    sync_log(f"✅ {stats['n_clusters']} кластеров за {time.time()-start_time:.1f}с")
+    
+    # Сохранение
+    out = file_path.replace(".csv", "_clustered.csv")
+    df.to_csv(out, index=False, encoding='utf-8')
+    
     return out, stats
