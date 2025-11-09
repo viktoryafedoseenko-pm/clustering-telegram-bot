@@ -183,7 +183,16 @@ class PDFReportGenerator:
             ["Средний размер:", f"{self.stats['avg_cluster_size']:.0f} текстов"],
             ["Шум (прочее):", f"{self.stats['noise_percent']:.1f}%"],
         ]
-        
+
+        if 'quality_metrics' in self.stats:
+            qm = self.stats['quality_metrics']
+            stats_data.extend([
+                ["", ""],  # Разделитель
+                ["📈 Качество кластеризации:", ""],
+                ["  Чёткость (Silhouette):", f"{qm['silhouette_score']:.3f}"],
+                ["  Разделённость (DB Index):", f"{qm['davies_bouldin_index']:.3f}"],
+            ])
+            
         table = Table(stats_data, colWidths=[3*inch, 2*inch])
         table.setStyle(TableStyle([
             ('FONT', (0, 0), (-1, -1), 'DejaVuSans', 12),
