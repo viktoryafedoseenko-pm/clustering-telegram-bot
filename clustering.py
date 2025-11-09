@@ -522,23 +522,6 @@ def calculate_metrics(topics, cluster_names, topic_model):
     }
 
 
-def validate_vectorizer_params(min_df, max_df, n_unique):
-    """Валидирует и корректирует параметры CountVectorizer"""
-    max_df_docs = int(max_df * n_unique)
-    
-    if min_df >= max_df_docs:
-        print(f"   ⚠️ КОНФЛИКТ: min_df={min_df} >= max_df_docs={max_df_docs}")
-        print(f"   Корректируем: min_df=1, max_df=0.99")
-        min_df, max_df = 1, 0.99
-    
-    # Дополнительная защита
-    min_df = min(min_df, n_unique - 1) if n_unique > 1 else 1
-    min_docs_for_max_df = max(2, int(0.1 * n_unique))
-    max_df = max(max_df, min_docs_for_max_df / n_unique)
-    
-    print(f"   ✅ Финальные параметры: min_df={min_df}, max_df={max_df:.2f}")
-    return min_df, max_df
-
 def clusterize_texts(file_path: str, progress_callback=None):
     """Кластеризация с оптимизированными параметрами"""
     import time
