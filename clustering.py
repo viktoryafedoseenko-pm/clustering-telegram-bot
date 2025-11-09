@@ -558,10 +558,10 @@ def clusterize_texts(file_path: str, progress_callback=None):
     # Предобработка
     sync_log("🧹 Предобработка...")
     preprocessed_texts = [preprocess_text(t) for t in raw_texts]
-    
+
     valid_indices = [i for i, t in enumerate(preprocessed_texts) 
-                     if t.strip() and len(t.split()) >= 2]
-    
+                    if t.strip() and len(t.split()) >= 2]
+
     if len(valid_indices) <= 3:
         df["cluster_id"] = 0
         df["cluster_name"] = "Все тексты"
@@ -571,73 +571,92 @@ def clusterize_texts(file_path: str, progress_callback=None):
 
     preprocessed_texts = [preprocessed_texts[i] for i in valid_indices]
     df = df.iloc[valid_indices].reset_index(drop=True)
-    
+
     # Удаление дубликатов по очищенным текстам
     sync_log("🔍 Удаление дубликатов...")
     df['_preprocessed'] = preprocessed_texts
     df = df.drop_duplicates(subset='_preprocessed', keep="first").reset_index(drop=True)
     preprocessed_texts = df['_preprocessed'].tolist()
-    df = df.drop(columns=['_preprocessed'])  # Убираем служебную колонку
+    df = df.drop(columns=['_preprocessed'])
     unique_texts = preprocessed_texts
     n_unique = len(unique_texts)
     sync_log(f"✨ Уникальных: {n_unique}")
 
-    # Модель
-    sync_log("🤖 Загрузка модели...")
-    model = SentenceTransformer("paraphrase-multilingual-MiniLM-L12-v2")
+    # 🆕 Диагностика А (ПОСЛЕ удаления дубликатов!)
+    print(f"\n🔍 ДИАГНОСТИКА ПЕРЕД VECTORIZER:")
+    print(f"   Уникальных текстов: {n_unique}")
+    print(f"   Пример текста: '{unique_texts[0][:100]}'" if unique_texts else "ПУСТО")
 
-    # Объединяем все стоп-слова для vectorizer
-    ALL_STOP_WORDS = STOP_WORDS.union(DOMAIN_STOP_WORDS).union(HTML_STOP_WORDS)
+    # Средняя длина
+    avg_length = sum(len(t.split()) for t in unique_texts) / len(unique_texts) if unique_texts else 0
+    print(f"   Средняя длина текста: {avg_length:.1f} слов")
+
+    # Считаем уникальные слова из ВСЕХ unique_texts
+    all_words = []
+    for text in unique_texts:
+        all_words.extend(text.split())
+
+    unique_words = set(all_words)
+    total_words = len(all_words)
+    print(f"   Всего слов: {total_words}")
+    print(f"   Уникальных слов: {len(unique_words)}")
+    print(f"   Примеры слов: {list(unique_words)[:30]}")
+
+    # Проверяем пустые тексты
+    empty_count = sum(1 for t in unique_texts if len(t.split()) == 0)
+    print(f"   Пустых текстов: {empty_count}")
 
     # Адаптивная настройка векторизации
     if n_unique < 100:
         min_df = 1
-        max_df = 0.9
+        max_df = 0.95
     elif n_unique < 500:
         min_df = 2
-        max_df = 0.8
+        max_df = 0.85
     else:
-        min_df = 2  # было 3
-        max_df = 0.7  # было 0.5
+        min_df = 2
+        max_df = 0.75
 
-    # ДИАГНОСТИКА: проверяем предобработанные тексты
-    print(f"\n🔍 ДИАГНОСТИКА VECTORIZER:")
-    print(f"   Количество текстов: {len(preprocessed_texts)}")
-    print(f"   Пример текста: {preprocessed_texts[0][:100] if preprocessed_texts else 'ПУСТО'}")
-    print(f"   Средняя длина текста: {sum(len(t.split()) for t in preprocessed_texts) / len(preprocessed_texts):.1f} слов")
+    print(f"\n   Параметры vectorizer:")
+    print(f"   min_df={min_df} (минимум {min_df} документов)")
+    print(f"   max_df={max_df} (максимум {int(max_df * n_unique)} документов)")
 
-    # Считаем уникальные слова
-    all_words = []
-    for text in preprocessed_texts[:100]:  # Берём первые 100 для скорости
-        all_words.extend(text.split())
-
-    unique_words = set(all_words)
-    print(f"   Уникальных слов (первые 100 текстов): {len(unique_words)}")
-    print(f"   Примеры слов: {list(unique_words)[:20]}")
-
-    # Проверяем, не все ли тексты пустые
-    non_empty = [t for t in preprocessed_texts if len(t.split()) > 0]
-    print(f"   Непустых текстов: {len(non_empty)} из {len(preprocessed_texts)}")
-
-    print(f"   Параметры: min_df={min_df}, max_df={max_df}")
-    print(f"   min_df в документах: {min_df}")
-    print(f"   max_df в документах: {int(max_df * len(preprocessed_texts))}")
-    print()
-
-    # 🆕 FALLBACK: если слишком мало слов — используем дефолтные параметры
-    if len(unique_words) < 50:
-        print("⚠️ ВНИМАНИЕ: Слишком мало уникальных слов после предобработки!")
-        print("   Используем минимальные ограничения для vectorizer")
+    # 🆕 ЗАЩИТА: проверяем, что min_df не больше max_df в документах
+    max_df_docs = int(max_df * n_unique)
+    if min_df >= max_df_docs:
+        print(f"   ⚠️ КОНФЛИКТ: min_df={min_df} >= max_df_docs={max_df_docs}")
+        print(f"   Корректируем: min_df=1, max_df=0.99")
         min_df = 1
-        max_df = 1.0  # Отключаем верхний порог
+        max_df = 0.99
+
+    # 🆕 ЗАЩИТА: если слишком мало уникальных слов
+    if len(unique_words) < 30:
+        print(f"\n⚠️ КРИТИЧНО: Всего {len(unique_words)} уникальных слов!")
+        print(f"   Причины:")
+        print(f"   1. Слишком агрессивная предобработка")
+        print(f"   2. Много коротких/похожих текстов")
+        print(f"   3. Слишком много стоп-слов")
+        print(f"\n   Решение: отключаем стоп-слова и смягчаем фильтры")
+        
         vectorizer_model = CountVectorizer(
             ngram_range=(1, 2),
-            stop_words=None,  # 🆕 Временно отключаем стоп-слова
-            min_df=min_df,
-            max_df=max_df,
+            stop_words=None,
+            min_df=1,
+            max_df=0.99,
+            max_features=500
+        )
+    elif len(unique_words) < 100:
+        print(f"\n⚠️ Мало слов ({len(unique_words)}), используем мягкие параметры")
+        
+        vectorizer_model = CountVectorizer(
+            ngram_range=(1, 2),
+            stop_words=None,  # Отключаем стоп-слова
+            min_df=1,
+            max_df=0.95,
             max_features=1000
         )
     else:
+        # Нормальный случай
         vectorizer_model = CountVectorizer(
             ngram_range=(1, 2),
             stop_words=list(MINIMAL_STOP_WORDS),
@@ -645,6 +664,12 @@ def clusterize_texts(file_path: str, progress_callback=None):
             max_df=max_df,
             max_features=1000
         )
+
+    print(f"   ✅ Vectorizer создан\n")
+
+    # Модельм эмбеддингов
+    sync_log("🤖 Загрузка модели...")
+    model = SentenceTransformer("paraphrase-multilingual-MiniLM-L12-v2")
 
     # Адаптивная настройка кластеризации
     if n_unique < 500:
