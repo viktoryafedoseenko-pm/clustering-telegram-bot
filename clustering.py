@@ -522,6 +522,73 @@ def calculate_metrics(topics, cluster_names, topic_model):
     }
 
 
+def validate_vectorizer_params(min_df, max_df, n_unique):
+    """Валидирует и корректирует параметры CountVectorizer"""
+    max_df_docs = int(max_df * n_unique)
+    
+    if min_df >= max_df_docs:
+        print(f"   ⚠️ КОНФЛИКТ: min_df={min_df} >= max_df_docs={max_df_docs}")
+        print(f"   Корректируем: min_df=1, max_df=0.99")
+        min_df, max_df = 1, 0.99
+    
+    # Дополнительная защита
+    min_df = min(min_df, n_unique - 1) if n_unique > 1 else 1
+    min_docs_for_max_df = max(2, int(0.1 * n_unique))
+    max_df = max(max_df, min_docs_for_max_df / n_unique)
+    
+    print(f"   ✅ Финальные параметры: min_df={min_df}, max_df={max_df:.2f}")
+    return min_df, max_df
+
+def create_vectorizer(unique_words, n_unique):
+    """Создает и валидирует CountVectorizer с безопасными параметрами"""
+    
+    # Базовые параметры в зависимости от размера датасета
+    if n_unique < 100:
+        min_df, max_df = 1, 0.95
+    elif n_unique < 500:
+        min_df, max_df = 2, 0.85
+    else:
+        min_df, max_df = 3, 0.75
+
+    # Корректировка для случаев с малым количеством слов
+    n_unique_words = len(unique_words)
+    if n_unique_words < 30:
+        print(f"⚠️ КРИТИЧНО: Всего {n_unique_words} уникальных слов!")
+        min_df, max_df = 1, 0.99
+    elif n_unique_words < 100:
+        print(f"⚠️ Мало слов ({n_unique_words}), используем мягкие параметры")
+        min_df, max_df = 1, 0.95
+
+    # Валидация параметров
+    min_df, max_df = validate_vectorizer_params(min_df, max_df, n_unique)
+    
+    # Настройки в зависимости от сценария
+    if n_unique_words < 30:
+        vectorizer_config = {
+            'ngram_range': (1, 2),
+            'stop_words': None,
+            'max_features': 500
+        }
+    elif n_unique_words < 100:
+        vectorizer_config = {
+            'ngram_range': (1, 2),
+            'stop_words': None,
+            'max_features': 1000
+        }
+    else:
+        vectorizer_config = {
+            'ngram_range': (1, 2),
+            'stop_words': list(MINIMAL_STOP_WORDS),
+            'max_features': 1000
+        }
+
+    # Создаем векторцайзер
+    return CountVectorizer(
+        **vectorizer_config,
+        min_df=min_df,
+        max_df=max_df
+    )
+
 def clusterize_texts(file_path: str, progress_callback=None):
     """Кластеризация с оптимизированными параметрами"""
     import time
@@ -903,70 +970,3 @@ def clusterize_texts(file_path: str, progress_callback=None):
     df.to_csv(out, index=False, encoding='utf-8')
     
     return out, stats
-
-def validate_vectorizer_params(min_df, max_df, n_unique):
-    """Валидирует и корректирует параметры CountVectorizer"""
-    max_df_docs = int(max_df * n_unique)
-    
-    if min_df >= max_df_docs:
-        print(f"   ⚠️ КОНФЛИКТ: min_df={min_df} >= max_df_docs={max_df_docs}")
-        print(f"   Корректируем: min_df=1, max_df=0.99")
-        min_df, max_df = 1, 0.99
-    
-    # Дополнительная защита
-    min_df = min(min_df, n_unique - 1) if n_unique > 1 else 1
-    min_docs_for_max_df = max(2, int(0.1 * n_unique))
-    max_df = max(max_df, min_docs_for_max_df / n_unique)
-    
-    print(f"   ✅ Финальные параметры: min_df={min_df}, max_df={max_df:.2f}")
-    return min_df, max_df
-
-def create_vectorizer(unique_words, n_unique):
-    """Создает и валидирует CountVectorizer с безопасными параметрами"""
-    
-    # Базовые параметры в зависимости от размера датасета
-    if n_unique < 100:
-        min_df, max_df = 1, 0.95
-    elif n_unique < 500:
-        min_df, max_df = 2, 0.85
-    else:
-        min_df, max_df = 3, 0.75
-
-    # Корректировка для случаев с малым количеством слов
-    n_unique_words = len(unique_words)
-    if n_unique_words < 30:
-        print(f"⚠️ КРИТИЧНО: Всего {n_unique_words} уникальных слов!")
-        min_df, max_df = 1, 0.99
-    elif n_unique_words < 100:
-        print(f"⚠️ Мало слов ({n_unique_words}), используем мягкие параметры")
-        min_df, max_df = 1, 0.95
-
-    # Валидация параметров
-    min_df, max_df = validate_vectorizer_params(min_df, max_df, n_unique)
-    
-    # Настройки в зависимости от сценария
-    if n_unique_words < 30:
-        vectorizer_config = {
-            'ngram_range': (1, 2),
-            'stop_words': None,
-            'max_features': 500
-        }
-    elif n_unique_words < 100:
-        vectorizer_config = {
-            'ngram_range': (1, 2),
-            'stop_words': None,
-            'max_features': 1000
-        }
-    else:
-        vectorizer_config = {
-            'ngram_range': (1, 2),
-            'stop_words': list(MINIMAL_STOP_WORDS),
-            'max_features': 1000
-        }
-
-    # Создаем векторцайзер
-    return CountVectorizer(
-        **vectorizer_config,
-        min_df=min_df,
-        max_df=max_df
-    )
