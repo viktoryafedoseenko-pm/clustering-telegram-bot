@@ -487,8 +487,8 @@ def clusterize_texts(file_path: str, progress_callback=None):
         ngram_range=(1, 2),
         stop_words=list(ALL_STOP_WORDS), 
         min_df=2,     
-        # max_df=0.8, -- убрала из-за конфликта
-        max_features=1000 
+        max_df=0.7, 
+        max_features=1500 
     )
 
     # Адаптивная настройка под размер данных
@@ -499,9 +499,9 @@ def clusterize_texts(file_path: str, progress_callback=None):
         n_neighbors = 10
     elif n_unique < 5000:
         # Для 500-5000 текстов (твой случай: 759)
-        min_cluster_size = max(15, int(n_unique * 0.020))  # ~15
-        min_samples = max(3, int(min_cluster_size * 0.20))  # ~3-4
-        n_neighbors = min(30, max(20, n_unique // 30))     # ~25
+        min_cluster_size = max(10, int(n_unique * 0.012))  
+        min_samples = max(2, int(min_cluster_size * 0.25))  # ~3-4
+        n_neighbors = min(20, max(15, n_unique // 40))     # ~25
     else:
         # Для больших датасетов (30к+)
         min_cluster_size = max(50, int(n_unique * 0.002))  # ~60 для 30к
