@@ -4,6 +4,7 @@
 Предоставляет высокоуровневый интерфейс для генерации отчётов
 """
 import asyncio
+import logging
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 import pandas as pd
@@ -14,6 +15,8 @@ from config import TEMP_DIR
 
 # Thread pool для блокирующих операций
 executor = ThreadPoolExecutor(max_workers=2)
+
+logger = logging.getLogger(__name__)
 
 async def generate_detailed_report(
     cache_key: str,
@@ -32,8 +35,11 @@ async def generate_detailed_report(
     # Загружаем из кэша
     data = cache.load(cache_key)
     if not data:
+        logger.error(f"❌ Cache not found for key: {cache_key}")
         return None
     
+    logger.info(f"✅ Cache loaded: {len(data['df'])} rows, {data['stats']['n_clusters']} clusters")
+
     df = data['df']
     stats = data['stats']
     cluster_names = data['cluster_names']
@@ -72,27 +78,48 @@ async def generate_detailed_report(
 
 def _generate_extended_csv(df: pd.DataFrame, cluster_names: dict, output_path: str):
     """Генерирует расширенную статистику в CSV"""
+    import logging
+    logger = logging.getLogger(__name__)
     
-    # 🆕 Используем value_counts напрямую
-    cluster_counts = df['cluster_id'].value_counts().sort_values(ascending=False)
-    
-    # Создаём таблицу
-    stats_data = []
-    
-    for cluster_id, size in cluster_counts.items():
-        # Название кластера
-        name = cluster_names.get(cluster_id, f"Кластер {cluster_id}")
+    try:
+        # Проверка данных
+        if df.empty:
+            logger.error("❌ DataFrame is empty")
+            raise ValueError("Empty DataFrame")
         
-        # Процент
-        percent = (size / len(df) * 100).round(2)
+        if 'cluster_id' not in df.columns:
+            logger.error(f"❌ 'cluster_id' column not found. Available: {df.columns.tolist()}")
+            raise ValueError("cluster_id column missing")
         
-        stats_data.append({
-            'cluster_id': cluster_id,
-            'cluster_name': name,
-            'size': size,
-            'percent': percent
-        })
-    
-    # Сохранение
-    cluster_stats = pd.DataFrame(stats_data)
-    cluster_stats.to_csv(output_path, index=False, encoding='utf-8')
+        # Подсчёт
+        logger.info(f"📊 Calculating stats for {len(df)} rows")
+        cluster_counts = df['cluster_id'].value_counts().sort_values(ascending=False)
+        
+        logger.info(f"📊 Found {len(cluster_counts)} clusters")
+        
+        # Создаём таблицу
+        stats_data = []
+        
+        for cluster_id, size in cluster_counts.items():
+            # Название кластера
+            name = cluster_names.get(cluster_id, f"Кластер {cluster_id}")
+            
+            # Процент
+            percent = round((size / len(df)) * 100, 2)
+            
+            stats_data.append({
+                'cluster_id': cluster_id,
+                'cluster_name': name,
+                'size': int(size),
+                'percent': percent
+            })
+        
+        # Сохранение
+        cluster_stats = pd.DataFrame(stats_data)
+        cluster_stats.to_csv(output_path, index=False, encoding='utf-8')
+        
+        logger.info(f"✅ Extended CSV saved: {output_path}")
+        
+    except Exception as e:
+        logger.error(f"❌ Error in _generate_extended_csv: {e}", exc_info=True)
+        raise
