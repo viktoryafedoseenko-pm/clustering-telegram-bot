@@ -393,6 +393,14 @@ def merge_similar_clusters(topics, topic_model, df, similarity_threshold=0.75):
     if len(unique_clusters) < 2:
         return topics, {}
     
+    # Достаём оригинальную модель
+    # BERTopic оборачивает модель в Backend, нужно достать оригинал
+    embedding_model = topic_model.embedding_model
+    
+    # Проверяем, есть ли атрибут .embedding_model (если это Backend)
+    if hasattr(embedding_model, 'embedding_model'):
+        embedding_model = embedding_model.embedding_model
+    
     # Получаем embeddings центров кластеров
     cluster_centers = {}
     
@@ -405,7 +413,7 @@ def merge_similar_clusters(topics, topic_model, df, similarity_threshold=0.75):
         cluster_texts = [df.iloc[i, 0] for i in cluster_indices[:20]]  # макс 20 для скорости
         
         # Получаем embeddings
-        embeddings = topic_model.embedding_model.encode(cluster_texts)
+        embeddings = embedding_model.encode(cluster_texts)
         
         # Центр кластера = среднее embeddings
         cluster_centers[cluster_id] = np.mean(embeddings, axis=0)
