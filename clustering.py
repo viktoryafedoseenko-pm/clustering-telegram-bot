@@ -606,36 +606,6 @@ def clusterize_texts(file_path: str, progress_callback=None):
     empty_count = sum(1 for t in unique_texts if len(t.split()) == 0)
     print(f"   Пустых текстов: {empty_count}")
 
-    # Упрощённая векторизация
-    sync_log("🔧 Настройка векторизатора...")
-    if n_unique < 50:
-        vectorizer_model = CountVectorizer(
-            ngram_range=(1, 2),
-            min_df=1,
-            max_df=1.0,  # Отключаем фильтр
-            max_features=500,
-            stop_words=None
-        )
-        print(f"   ✅ Vectorizer создан: min_df=1, max_df=1.0 (малый датасет)")
-    elif n_unique < 500:
-        vectorizer_model = CountVectorizer(
-            ngram_range=(1, 2),
-            min_df=2,
-            max_df=0.95,
-            max_features=1000,
-            stop_words=list(MINIMAL_STOP_WORDS)
-        )
-        print(f"   ✅ Vectorizer создан: min_df=2, max_df=0.95")
-    else:
-        vectorizer_model = CountVectorizer(
-            ngram_range=(1, 2),
-            min_df=max(2, int(n_unique * 0.001)),  # Мин 0.1% документов
-            max_df=0.8,
-            max_features=1000,
-            stop_words=list(MINIMAL_STOP_WORDS)
-        )
-        print(f"   ✅ Vectorizer создан: min_df={max(2, int(n_unique * 0.001))}, max_df=0.8")
-
     # Модель эмбеддингов
     sync_log("🤖 Загрузка модели...")
     model = SentenceTransformer("paraphrase-multilingual-MiniLM-L12-v2")
@@ -663,7 +633,6 @@ def clusterize_texts(file_path: str, progress_callback=None):
     print(f"   n_neighbors = {n_neighbors}")
 
     n_components = 10
-
 
     umap_model = UMAP(
         n_neighbors=n_neighbors,
@@ -713,7 +682,6 @@ def clusterize_texts(file_path: str, progress_callback=None):
             if len(filtered) >= 5:  # Берём топ-5 слов
                 break
         return filtered
-
 
     # Кластеризация
     sync_log(f"🎯 Кластеризация (min_size={min_cluster_size})...")
