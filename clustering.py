@@ -606,98 +606,35 @@ def clusterize_texts(file_path: str, progress_callback=None):
     empty_count = sum(1 for t in unique_texts if len(t.split()) == 0)
     print(f"   Пустых текстов: {empty_count}")
 
-    # Создаём векторизацию с безопасными параметрами
+    # Упрощённая векторизация
     sync_log("🔧 Настройка векторизатора...")
-    def create_vectorizer(unique_words, n_unique):
-        """Создаёт и валидирует CountVectorizer с безопасными параметрами."""
-        
-        def safe_vectorizer_params(n_docs: int, n_words: int):
-            """
-            Подбирает безопасные min_df и max_df для CountVectorizer.
-            Работает и для очень маленьких датасетов (<10 документов).
-            """
-            # Базовые рекомендации
-            if n_docs < 50:
-                min_df, max_df = 1, 1.0
-            elif n_docs < 200:
-                min_df, max_df = 2, 0.9
-            elif n_docs < 1000:
-                min_df, max_df = 3, 0.8
-            else:
-                min_df, max_df = 5, 0.7
-
-            # Ослабляем фильтры, если слов мало
-            if n_words < 30:
-                min_df, max_df = 1, 1.0
-            elif n_words < 100:
-                min_df, max_df = 1, 0.95
-
-            # 🩹 Гарантируем корректное соотношение
-            if isinstance(max_df, float):
-                max_df_docs = int(max_df * n_docs)
-                
-                # Если max_df меньше min_df, корректируем
-                if max_df_docs < min_df:
-                    # Вариант 1: Поднять max_df
-                    min_df = 1
-                    max_df = min(1.0, (min_df + 1) / n_docs + 0.1)
-                    
-                    # Если всё равно не помогло (экстремально мало документов)
-                    if max_df * n_docs < min_df:
-                        max_df = 1.0  # Отключаем фильтр max_df
-            
-            elif isinstance(max_df, int):
-                # Если max_df - целое число
-                if max_df < min_df:
-                    min_df = 1
-                    max_df = max(2, n_docs)  # Берём все документы
-            
-            # Финальная проверка
-            if isinstance(max_df, float):
-                assert max_df * n_docs >= min_df, \
-                    f"Некорректные параметры: max_df={max_df} * {n_docs} = {max_df * n_docs} < min_df={min_df}"
-            else:
-                assert max_df >= min_df, \
-                    f"Некорректные параметры: max_df={max_df} < min_df={min_df}"
-            
-            return min_df, max_df
-
-        # === основной код ===
-        n_unique_words = len(unique_words)
-        min_df, max_df = safe_vectorizer_params(n_unique, n_unique_words)
-
-        # Конфигурация векторизатора под размер корпуса
-        if n_unique_words < 30:
-            config = {
-                'ngram_range': (1, 2),
-                'stop_words': None,
-                'max_features': 500
-            }
-        elif n_unique_words < 100:
-            config = {
-                'ngram_range': (1, 2),
-                'stop_words': None,
-                'max_features': 1000
-            }
-        else:
-            config = {
-                'ngram_range': (1, 2),
-                'stop_words': list(MINIMAL_STOP_WORDS),
-                'max_features': 1000
-            }
-
-        # Создаём безопасный CountVectorizer
-        vectorizer = CountVectorizer(
-            **config,
-            min_df=min_df,
-            max_df=max_df
+    if n_unique < 50:
+        vectorizer_model = CountVectorizer(
+            ngram_range=(1, 2),
+            min_df=1,
+            max_df=1.0,  # Отключаем фильтр
+            max_features=500,
+            stop_words=None
         )
-
-        print(f"   ✅ Vectorizer создан: min_df={min_df}, max_df={max_df}")
-        return vectorizer
-
-    vectorizer_model = create_vectorizer(unique_words, n_unique)
-    print(f"   ✅ Vectorizer создан\n")
+        print(f"   ✅ Vectorizer создан: min_df=1, max_df=1.0 (малый датасет)")
+    elif n_unique < 500:
+        vectorizer_model = CountVectorizer(
+            ngram_range=(1, 2),
+            min_df=2,
+            max_df=0.95,
+            max_features=1000,
+            stop_words=list(MINIMAL_STOP_WORDS)
+        )
+        print(f"   ✅ Vectorizer создан: min_df=2, max_df=0.95")
+    else:
+        vectorizer_model = CountVectorizer(
+            ngram_range=(1, 2),
+            min_df=max(2, int(n_unique * 0.001)),  # Мин 0.1% документов
+            max_df=0.8,
+            max_features=1000,
+            stop_words=list(MINIMAL_STOP_WORDS)
+        )
+        print(f"   ✅ Vectorizer создан: min_df={max(2, int(n_unique * 0.001))}, max_df=0.8")
 
     # Модель эмбеддингов
     sync_log("🤖 Загрузка модели...")
