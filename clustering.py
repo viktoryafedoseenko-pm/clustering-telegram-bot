@@ -656,7 +656,6 @@ def clusterize_texts(file_path: str, progress_callback=None):
         embedding_model=model,
         umap_model=umap_model,
         hdbscan_model=hdbscan_model,
-        vectorizer_model=vectorizer_model,
         language="multilingual",
         calculate_probabilities=False,
         verbose=False,
