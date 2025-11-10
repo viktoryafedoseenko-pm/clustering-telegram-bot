@@ -288,8 +288,8 @@ class PDFReportGenerator:
         elements.append(Spacer(1, self.SPACER_SMALL))
         
         elements.append(self._create_paragraph(
-            "В таблице представлены 15 крупнейших кластеров, "
-            "упорядоченных по количеству текстов.",
+            "В таблице представлены крупнейшие кластеры, "
+            "упорядоченные по количеству текстов.",
             'CustomBody'
         ))
         elements.append(Spacer(1, self.SPACER_MEDIUM))
@@ -356,7 +356,7 @@ class PDFReportGenerator:
         elements.append(Spacer(1, self.SPACER_SMALL))
         
         elements.append(self._create_paragraph(
-            "Графики показывают относительные размеры 10 крупнейших кластеров.",
+            "Графики показывают относительные размеры крупнейших кластеров.",
             'CustomBody'
         ))
         elements.append(Spacer(1, self.SPACER_MEDIUM))
