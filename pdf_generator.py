@@ -73,15 +73,9 @@ class PDFReportGenerator:
         """Настройка стилей с кириллицей"""
         styles = getSampleStyleSheet()
         
-        # Попытка использовать стандартные шрифты, fallback на DejaVuSans
-        try:
-            title_font = 'Helvetica-Bold'
-            heading_font = 'Helvetica-Bold'
-            body_font = 'Helvetica'
-        except:
-            title_font = 'DejaVuSans'
-            heading_font = 'DejaVuSans'
-            body_font = 'DejaVuSans'
+        title_font = 'DejaVuSans'
+        heading_font = 'DejaVuSans'
+        body_font = 'DejaVuSans'
         
         # Заголовок отчёта
         styles.add(ParagraphStyle(
