@@ -601,6 +601,7 @@ def clusterize_texts(file_path: str, progress_callback=None):
         min_cluster_size = max(50, int(n_unique * 0.002))  # ~60 для 30к
         min_samples = max(10, int(min_cluster_size * 0.2)) # ~12
         n_neighbors = min(50, max(30, n_unique // 200))    # ~150
+        n_components = 10
 
     # Логируем параметры
     print(f"🎯 Параметры кластеризации для {n_unique} текстов:")
