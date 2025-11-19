@@ -640,6 +640,31 @@ def clusterize_texts(file_path: str, progress_callback=None):
     # ========================================
     # КОНЕЦ БЛОКА НАСТРОЙКИ VECTORIZER
     # ========================================
+
+
+    # Адаптивная настройка под размер данных
+    if n_unique < 500:
+        # Для маленьких датасетов
+        min_cluster_size = 5
+        min_samples = 2
+        n_neighbors = 10
+    elif n_unique < 5000:
+        # Для 500-5000 текстов
+        min_cluster_size = max(10, int(n_unique * 0.020))  
+        min_samples = max(2, int(min_cluster_size * 0.25))  # ~3-4
+        n_neighbors = min(20, max(15, n_unique // 40))     # ~25
+    else:
+        # Для больших датасетов (30к+)
+        min_cluster_size = max(50, int(n_unique * 0.002))  # ~60 для 30к
+        min_samples = max(10, int(min_cluster_size * 0.2)) # ~12
+        n_neighbors = min(50, max(30, n_unique // 200))    # ~150
+
+    # Логируем параметры
+    print(f"🎯 Параметры кластеризации для {n_unique} текстов:")
+    print(f"   min_cluster_size = {min_cluster_size}")
+    print(f"   min_samples = {min_samples}")
+    print(f"   n_neighbors = {n_neighbors}")
+
     n_components = 10
 
 
