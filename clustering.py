@@ -592,9 +592,9 @@ def clusterize_texts(file_path: str, progress_callback=None):
         n_neighbors = 10
     elif n_unique < 5000:
         # Для 500-5000 текстов
-        min_cluster_size = 12  
-        min_samples = 2
-        n_neighbors = 17
+        min_cluster_size = 11  
+        min_samples = 3
+        n_neighbors = 20
         n_components = 8
     else:
         # Для больших датасетов (30к+)
