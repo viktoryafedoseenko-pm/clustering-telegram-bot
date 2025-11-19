@@ -573,37 +573,73 @@ def clusterize_texts(file_path: str, progress_callback=None):
     # Объединяем все стоп-слова для vectorizer
     ALL_STOP_WORDS = STOP_WORDS.union(DOMAIN_STOP_WORDS).union(HTML_STOP_WORDS)
 
-    vectorizer_model = CountVectorizer(
-        ngram_range=(1, 2),
-        stop_words=list(ALL_STOP_WORDS), 
-        min_df=2,     
-        max_df=0.7, 
-        max_features=1500 
-    )
+    # ========================================
+    # БЕЗОПАСНАЯ НАСТРОЙКА VECTORIZER
+    # ========================================
 
-    # Адаптивная настройка под размер данных
-    if n_unique < 500:
-        # Для маленьких датасетов
-        min_cluster_size = 5
-        min_samples = 2
-        n_neighbors = 10
-    elif n_unique < 5000:
-        # Для 500-5000 текстов (твой случай: 759)
-        min_cluster_size = max(10, int(n_unique * 0.020))  
-        min_samples = max(2, int(min_cluster_size * 0.25))  # ~3-4
-        n_neighbors = min(20, max(15, n_unique // 40))     # ~25
+    # 1. Определяем базовые значения
+    if n_unique < 50:
+        min_df_value = 1
+        max_df_value = 1.0  # 100% документов
+    elif n_unique < 200:
+        min_df_value = 1
+        max_df_value = 0.99
+    elif n_unique < 1000:
+        min_df_value = 2
+        max_df_value = 0.95
     else:
-        # Для больших датасетов (30к+)
-        min_cluster_size = max(50, int(n_unique * 0.002))  # ~60 для 30к
-        min_samples = max(10, int(min_cluster_size * 0.2)) # ~12
-        n_neighbors = min(50, max(30, n_unique // 200))    # ~150
+        min_df_value = max(2, n_unique // 500)
+        max_df_value = 0.85
 
-    # Логируем параметры
-    print(f"🎯 Параметры кластеризации для {n_unique} текстов:")
-    print(f"   min_cluster_size = {min_cluster_size}")
-    print(f"   min_samples = {min_samples}")
-    print(f"   n_neighbors = {n_neighbors}")
+    # 2. КРИТИЧЕСКАЯ ПРОВЕРКА: min_df не может быть >= max_df в абсолютных числах
+    max_df_absolute = int(n_unique * max_df_value) if max_df_value < 1.0 else n_unique
 
+    if min_df_value >= max_df_absolute:
+        print(f"⚠️ КОНФЛИКТ ПАРАМЕТРОВ ОБНАРУЖЕН!")
+        print(f"   n_unique={n_unique}, min_df={min_df_value}, max_df={max_df_value} ({max_df_absolute} docs)")
+        print(f"   → Принудительная корректировка: min_df=1, max_df=1.0")
+        min_df_value = 1
+        max_df_value = 1.0
+
+    # 3. Дополнительная проверка: если слишком мало документов
+    if n_unique < 10:
+        print(f"⚠️ Очень мало уникальных текстов ({n_unique}), упрощаем параметры")
+        min_df_value = 1
+        max_df_value = 1.0
+        max_features_value = None  # Без ограничений
+    else:
+        max_features_value = min(1500, n_unique * 5)  # Не больше 5 слов на документ
+
+    # 4. Логирование финальных параметров
+    print(f"📊 Параметры CountVectorizer:")
+    print(f"   min_df = {min_df_value}")
+    print(f"   max_df = {max_df_value} ({max_df_absolute} docs)")
+    print(f"   max_features = {max_features_value}")
+
+    # 5. Создание vectorizer с защищёнными параметрами
+    try:
+        vectorizer_model = CountVectorizer(
+            ngram_range=(1, 2),
+            stop_words=list(ALL_STOP_WORDS), 
+            min_df=min_df_value,     
+            max_df=max_df_value, 
+            max_features=max_features_value
+        )
+    except Exception as e:
+        # Если что-то всё равно пошло не так - fallback на самые безопасные параметры
+        print(f"❌ Ошибка создания vectorizer: {e}")
+        print(f"   → Использую минимальные безопасные параметры")
+        vectorizer_model = CountVectorizer(
+            ngram_range=(1, 1),  # Только униграммы
+            stop_words=list(ALL_STOP_WORDS), 
+            min_df=1,
+            max_df=1.0,
+            max_features=None
+        )
+
+    # ========================================
+    # КОНЕЦ БЛОКА НАСТРОЙКИ VECTORIZER
+    # ========================================
     n_components = 10
 
 
