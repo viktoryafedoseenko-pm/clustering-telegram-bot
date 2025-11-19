@@ -573,73 +573,15 @@ def clusterize_texts(file_path: str, progress_callback=None):
     # Объединяем все стоп-слова для vectorizer
     ALL_STOP_WORDS = STOP_WORDS.union(DOMAIN_STOP_WORDS).union(HTML_STOP_WORDS)
 
-    # ========================================
-    # БЕЗОПАСНАЯ НАСТРОЙКА VECTORIZER
-    # ========================================
+    vectorizer_model = CountVectorizer(
+        ngram_range=(1, 2),
+        stop_words=list(ALL_STOP_WORDS), 
+        min_df=1,        # Минимально возможное значение
+        max_df=1.0,      # Максимально возможное значение (100%)
+        max_features=None  # Без ограничений
+    )
 
-    # 1. Определяем базовые значения
-    if n_unique < 50:
-        min_df_value = 1
-        max_df_value = 1.0  # 100% документов
-    elif n_unique < 200:
-        min_df_value = 1
-        max_df_value = 0.99
-    elif n_unique < 1000:
-        min_df_value = 2
-        max_df_value = 0.95
-    else:
-        min_df_value = max(2, n_unique // 500)
-        max_df_value = 0.85
-
-    # 2. КРИТИЧЕСКАЯ ПРОВЕРКА: min_df не может быть >= max_df в абсолютных числах
-    max_df_absolute = int(n_unique * max_df_value) if max_df_value < 1.0 else n_unique
-
-    if min_df_value >= max_df_absolute:
-        print(f"⚠️ КОНФЛИКТ ПАРАМЕТРОВ ОБНАРУЖЕН!")
-        print(f"   n_unique={n_unique}, min_df={min_df_value}, max_df={max_df_value} ({max_df_absolute} docs)")
-        print(f"   → Принудительная корректировка: min_df=1, max_df=1.0")
-        min_df_value = 1
-        max_df_value = 1.0
-
-    # 3. Дополнительная проверка: если слишком мало документов
-    if n_unique < 10:
-        print(f"⚠️ Очень мало уникальных текстов ({n_unique}), упрощаем параметры")
-        min_df_value = 1
-        max_df_value = 1.0
-        max_features_value = None  # Без ограничений
-    else:
-        max_features_value = min(1500, n_unique * 5)  # Не больше 5 слов на документ
-
-    # 4. Логирование финальных параметров
-    print(f"📊 Параметры CountVectorizer:")
-    print(f"   min_df = {min_df_value}")
-    print(f"   max_df = {max_df_value} ({max_df_absolute} docs)")
-    print(f"   max_features = {max_features_value}")
-
-    # 5. Создание vectorizer с защищёнными параметрами
-    try:
-        vectorizer_model = CountVectorizer(
-            ngram_range=(1, 2),
-            stop_words=list(ALL_STOP_WORDS), 
-            min_df=min_df_value,     
-            max_df=max_df_value, 
-            max_features=max_features_value
-        )
-    except Exception as e:
-        # Если что-то всё равно пошло не так - fallback на самые безопасные параметры
-        print(f"❌ Ошибка создания vectorizer: {e}")
-        print(f"   → Использую минимальные безопасные параметры")
-        vectorizer_model = CountVectorizer(
-            ngram_range=(1, 1),  # Только униграммы
-            stop_words=list(ALL_STOP_WORDS), 
-            min_df=1,
-            max_df=1.0,
-            max_features=None
-        )
-
-    # ========================================
-    # КОНЕЦ БЛОКА НАСТРОЙКИ VECTORIZER
-    # ========================================
+    print(f"📊 Параметры CountVectorizer: min_df=1, max_df=1.0 (безопасный режим)")
 
 
     # Адаптивная настройка под размер данных
@@ -727,10 +669,20 @@ def clusterize_texts(file_path: str, progress_callback=None):
 
     # 🆕 ПОЛУЧАЕМ EMBEDDINGS ДЛЯ МЕТРИК
     sync_log("📊 Вычисление метрик качества...")
-    embeddings = topic_model._extract_embeddings(
-        unique_texts,
-        method="document"
-    )
+    try:
+        embeddings = topic_model._extract_embeddings(
+            unique_texts,
+            method="document"
+        )
+        quality_metrics = ClusteringMetrics.calculate(embeddings, topics)
+        sync_log(f"✅ Метрики: Silhouette={quality_metrics['silhouette_score']:.3f}, DB={quality_metrics['davies_bouldin_index']:.3f}")
+    except Exception as e:
+        sync_log(f"⚠️ Не удалось вычислить метрики: {e}")
+        quality_metrics = {
+            'silhouette_score': 0.0,
+            'davies_bouldin_index': 0.0,
+            'calinski_harabasz_score': 0.0
+        }
 
     # Объединение кластеров (временно отключили)
     # sync_log("🔗 Объединение похожих кластеров...")
