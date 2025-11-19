@@ -577,8 +577,8 @@ def clusterize_texts(file_path: str, progress_callback=None):
         ngram_range=(1, 2),
         stop_words=list(ALL_STOP_WORDS), 
         min_df=1,        # Минимально возможное значение
-        max_df=1.0,      # Максимально возможное значение (100%)
-        max_features=None  # Без ограничений
+        max_df=0.7,      # Максимально возможное значение (100%)
+        max_features=800  # Без ограничений
     )
 
     print(f"📊 Параметры CountVectorizer: min_df=1, max_df=1.0 (безопасный режим)")
@@ -592,9 +592,10 @@ def clusterize_texts(file_path: str, progress_callback=None):
         n_neighbors = 10
     elif n_unique < 5000:
         # Для 500-5000 текстов
-        min_cluster_size = max(10, int(n_unique * 0.020))  
-        min_samples = max(2, int(min_cluster_size * 0.25))  # ~3-4
-        n_neighbors = min(20, max(15, n_unique // 40))     # ~25
+        min_cluster_size = 12  
+        min_samples = 2
+        n_neighbors = 17
+        n_components = 8
     else:
         # Для больших датасетов (30к+)
         min_cluster_size = max(50, int(n_unique * 0.002))  # ~60 для 30к
@@ -607,8 +608,6 @@ def clusterize_texts(file_path: str, progress_callback=None):
     print(f"   min_samples = {min_samples}")
     print(f"   n_neighbors = {n_neighbors}")
 
-    n_components = 10
-
 
     umap_model = UMAP(
         n_neighbors=n_neighbors,
@@ -616,7 +615,8 @@ def clusterize_texts(file_path: str, progress_callback=None):
         min_dist=0.0,
         metric='cosine',
         random_state=42,
-        n_jobs=1
+        n_jobs=1,
+        spread =1.0
     )
     
     hdbscan_model = HDBSCAN(
@@ -646,17 +646,26 @@ def clusterize_texts(file_path: str, progress_callback=None):
         filtered = []
         for word, score in topic_words:
             w_lower = word.lower()
+            
+            # Простые проверки без regex
+            has_digit = any(c.isdigit() for c in word)
+            has_alpha = any(c.isalpha() for c in word)
+            is_short_english = len(word) <= 3 and word.isascii() and word.isalpha()
+            
             # Строгая проверка
             if (w_lower not in banned_words and
                 len(word) > 2 and
                 len(word) < 20 and
                 not word.isdigit() and
-                not re.match(r'^\d+[a-z%]*$', word, re.I) and
-                not re.match(r'^[a-z]{1,3}$', word)):  # короткие англ слова
+                not (has_digit and len(word) < 5) and  # Типа "2x", "10px"
+                not is_short_english):  # "css", "div", "px"
                 filtered.append((word, score))
-            if len(filtered) >= 5:  # Берём топ-5 слов
+            
+            if len(filtered) >= 5:
                 break
+        
         return filtered
+
 
 
     # Кластеризация
