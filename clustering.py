@@ -576,9 +576,9 @@ def clusterize_texts(file_path: str, progress_callback=None):
     vectorizer_model = CountVectorizer(
         ngram_range=(1, 2),
         stop_words=list(ALL_STOP_WORDS), 
-        min_df=1,        # Минимально возможное значение
-        max_df=0.7,      # Максимально возможное значение (100%)
-        max_features=800  # Без ограничений
+        min_df=1,  
+        max_df=0.8,    
+        max_features=1800  
     )
 
     print(f"📊 Параметры CountVectorizer: min_df=1, max_df=1.0 (безопасный режим)")
@@ -598,10 +598,10 @@ def clusterize_texts(file_path: str, progress_callback=None):
         n_components = 8
     else:
         # Для больших датасетов (30к+)
-        min_cluster_size = max(50, int(n_unique * 0.002))  # ~60 для 30к
-        min_samples = max(10, int(min_cluster_size * 0.2)) # ~12
-        n_neighbors = min(50, max(30, n_unique // 200))    # ~150
-        n_components = 10
+        min_cluster_size = 52
+        min_samples = 10
+        n_neighbors = 55
+        n_components = 12
 
     # Логируем параметры
     print(f"🎯 Параметры кластеризации для {n_unique} текстов:")
