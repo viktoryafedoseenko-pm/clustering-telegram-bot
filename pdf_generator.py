@@ -332,14 +332,22 @@ class PDFReportGenerator:
                 cluster_count = len(self.df[self.df['cluster_id'] == cluster_id])
                 total_count += cluster_count
                 cluster_name = self.cluster_names.get(cluster_id, f"Кластер {cluster_id}")
-                cluster_details.append(f"• {cluster_name}")
+                # Убираем HTML-теги и ограничиваем длину
+                clean_name = cluster_name.replace('•', '').replace('■', '').strip()
+                if len(clean_name) > 35:
+                    clean_name = clean_name[:35] + "..."
+                cluster_details.append(f"• {clean_name}")
             
             percent = (total_count / len(self.df)) * 100
             
-            # Объединяем детали кластеров
-            clusters_text = "<br/>".join(cluster_details[:5])  # Показываем первые 5
-            if len(cluster_details) > 5:
-                clusters_text += f"<br/>... и ещё {len(cluster_details) - 5}"
+            # Ограничиваем длину названия мастер-категории
+            if len(master_name) > 40:
+                master_name = master_name[:40] + "..."
+            
+            # Объединяем детали кластеров (максимум 3)
+            clusters_text = "<br/>".join(cluster_details[:3])
+            if len(cluster_details) > 3:
+                clusters_text += f"<br/>... и ещё {len(cluster_details) - 3}"
             
             table_data.append([
                 master_name,
@@ -348,21 +356,28 @@ class PDFReportGenerator:
                 f"{percent:.1f}%"
             ])
         
-        table = Table(table_data, colWidths=[2*inch, 2.5*inch, 0.8*inch, 0.7*inch])
-        table.setStyle(TableStyle([
+        # Увеличиваем ширину колонок для лучшего отображения
+        table = Table(table_data, colWidths=[2.2*inch, 2.8*inch, 0.7*inch, 0.7*inch])
+        
+        # Упрощаем стиль таблицы
+        table_style = TableStyle([
             # Заголовок
             ('BACKGROUND', (0, 0), (-1, 0), self.COLOR_MASTER_CAT),
             ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
             ('FONTNAME', (0, 0), (-1, 0), 'DejaVuSans'),
             ('FONTSIZE', (0, 0), (-1, 0), self.FONT_BODY),
-            ('FONTNAME', (0, 1), (-1, -1), 'DejaVuSans'),
-            ('FONTSIZE', (0, 1), (-1, -1), self.FONT_SMALL),
+            ('ALIGN', (0, 0), (-1, 0), 'CENTER'),
             
-            # Выравнивание
-            ('ALIGN', (0, 0), (0, -1), 'LEFT'),
-            ('ALIGN', (1, 0), (1, -1), 'LEFT'),
-            ('ALIGN', (2, 0), (-1, -1), 'CENTER'),
+            # Данные
+            ('FONTNAME', (0, 1), (-1, -1), 'DejaVuSans'),
+            ('FONTSIZE', (0, 1), (-1, -1), self.FONT_SMALL - 1),  # Чуть меньше шрифт
+            ('ALIGN', (0, 1), (0, -1), 'LEFT'),
+            ('ALIGN', (1, 1), (1, -1), 'LEFT'),
+            ('ALIGN', (2, 1), (-1, -1), 'CENTER'),
             ('VALIGN', (0, 0), (-1, -1), 'TOP'),
+            
+            # Переносы строк
+            ('WORDWRAP', (0, 0), (-1, -1), True),  # Включаем перенос слов
             
             # Чередующиеся строки
             ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, self.COLOR_BACKGROUND]),
@@ -373,12 +388,16 @@ class PDFReportGenerator:
             ('BOX', (0, 0), (-1, -1), 0.5, self.COLOR_DIVIDER),
             
             # Отступы
-            ('TOPPADDING', (0, 0), (-1, -1), 8),
-            ('BOTTOMPADDING', (0, 0), (-1, -1), 8),
-            ('LEFTPADDING', (0, 0), (-1, -1), 6),
-            ('RIGHTPADDING', (0, 0), (-1, -1), 6),
-        ]))
+            ('TOPPADDING', (0, 0), (-1, -1), 6),
+            ('BOTTOMPADDING', (0, 0), (-1, -1), 6),
+            ('LEFTPADDING', (0, 0), (-1, -1), 4),
+            ('RIGHTPADDING', (0, 0), (-1, -1), 4),
+            
+            # Высота строк
+            ('MINIMUMHEIGHT', (0, 0), (-1, -1), 15),
+        ])
         
+        table.setStyle(table_style)
         elements.append(table)
         
         return elements
