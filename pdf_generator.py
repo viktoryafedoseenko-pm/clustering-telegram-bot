@@ -194,17 +194,12 @@ class PDFReportGenerator:
                 story.extend(self._create_master_categories_page())
                 story.append(PageBreak())
             
-            # 3. Статистика
-            logger.info("📊 Creating statistics page...")
-            story.extend(self._create_statistics_page())
-            story.append(PageBreak())
-            
-            # 4. Графики
+            # 3. Графики
             logger.info("📈 Creating charts...")
             story.extend(self._create_charts_page())
             story.append(PageBreak())
             
-            # 5. Топ-10 кластеров
+            # 4. Топ-10 кластеров
             logger.info("🏷️ Creating cluster pages...")
             story.extend(self._create_clusters_pages())
             
