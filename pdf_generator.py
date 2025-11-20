@@ -302,7 +302,7 @@ class PDFReportGenerator:
         return elements
     
     def _create_master_categories_page(self):
-        """Страница с мастер-категориями"""
+        """Страница с мастер-категориями - каждая строка = один кластер"""
         elements = []
         
         elements.append(self._create_paragraph(
@@ -313,78 +313,74 @@ class PDFReportGenerator:
         
         elements.append(self._create_paragraph(
             "Иерархическая группировка кластеров в тематические категории, "
-            "сгенерированные с помощью LLM.",
+            "сгенерированные с помощью LLM. Каждая строка представляет один кластер.",
             'CustomBody'
         ))
         elements.append(Spacer(1, self.SPACER_MEDIUM))
         
-        # Собираем данные и сортируем мастер-категории по размеру (от большей к меньшей)
-        master_categories_data = []
+        # Собираем все данные для таблицы
+        table_data = [["Мастер-категория", "Кластер", "Количество", "Доля"]]
+        
+        # Собираем все кластеры с их мастер-категориями
+        all_clusters_data = []
         
         for master_id, sub_clusters in self.master_hierarchy.items():
             master_name = self.master_names.get(master_id, f"Категория {master_id}")
             
-            # Считаем общее количество текстов в мастер-категории
-            total_count = 0
-            cluster_details = []
+            # Считаем общее количество текстов в мастер-категории для сортировки
+            master_total_count = sum(
+                len(self.df[self.df['cluster_id'] == cluster_id])
+                for cluster_id in sub_clusters
+            )
             
-            # Собираем информацию о кластерах внутри категории
+            # Собираем информацию о каждом кластере внутри категории
             for cluster_id in sub_clusters:
                 cluster_count = len(self.df[self.df['cluster_id'] == cluster_id])
-                total_count += cluster_count
                 cluster_name = self.cluster_names.get(cluster_id, f"Кластер {cluster_id}")
-                cluster_details.append({
-                    'name': cluster_name,
-                    'count': cluster_count
+                percent = (cluster_count / len(self.df)) * 100
+                
+                # Очищаем название от спецсимволов
+                clean_cluster_name = cluster_name.replace('•', '').replace('■', '').strip()
+                if len(clean_cluster_name) > 50:
+                    clean_cluster_name = clean_cluster_name[:50] + "..."
+                
+                # Ограничиваем длину названия мастер-категории
+                clean_master_name = master_name
+                if len(clean_master_name) > 40:
+                    clean_master_name = clean_master_name[:40] + "..."
+                
+                all_clusters_data.append({
+                    'master_name': clean_master_name,
+                    'master_total_count': master_total_count,
+                    'cluster_name': clean_cluster_name,
+                    'cluster_count': cluster_count,
+                    'percent': percent
                 })
-            
-            # Сортируем кластеры внутри категории по размеру (от большего к меньшему)
-            cluster_details.sort(key=lambda x: x['count'], reverse=True)
-            
-            # Форматируем отображение кластеров
-            formatted_clusters = []
-            for cluster in cluster_details:
-                clean_name = cluster['name'].replace('•', '').replace('■', '').strip()
-                if len(clean_name) > 35:
-                    clean_name = clean_name[:35] + "..."
-                formatted_clusters.append(f"• {clean_name} ({cluster['count']})")
-            
-            percent = (total_count / len(self.df)) * 100
-            
-            # Ограничиваем длину названия мастер-категории
-            if len(master_name) > 40:
-                master_name = master_name[:40] + "..."
-            
-            # Объединяем детали кластеров (максимум 4)
-            clusters_text = "<br/>".join(formatted_clusters[:4])
-            if len(formatted_clusters) > 4:
-                clusters_text += f"<br/>... и ещё {len(formatted_clusters) - 4}"
-            
-            master_categories_data.append({
-                'master_name': master_name,
-                'clusters_text': clusters_text,
-                'total_count': total_count,
-                'percent': percent
-            })
         
-        # Сортируем мастер-категории по количеству текстов (от большей к меньшей)
-        master_categories_data.sort(key=lambda x: x['total_count'], reverse=True)
+        # Сортируем: сначала по размеру мастер-категории, потом по размеру кластера (оба по убыванию)
+        all_clusters_data.sort(key=lambda x: (x['master_total_count'], x['cluster_count']), reverse=True)
         
-        # Создаём данные для таблицы
-        table_data = [["Мастер-категория", "Входящие кластеры", "Количество", "Доля"]]
-        
-        for category in master_categories_data:
+        # Заполняем таблицу
+        current_master = None
+        for cluster_data in all_clusters_data:
+            # Если сменилась мастер-категория, можно добавить разделитель (опционально)
+            if cluster_data['master_name'] != current_master:
+                current_master = cluster_data['master_name']
+                # Можно добавить пустую строку для разделения (раскомментировать если нужно)
+                # if len(table_data) > 1:  # Не добавлять перед первой строкой
+                #     table_data.append(["", "", "", ""])
+            
             table_data.append([
-                category['master_name'],
-                category['clusters_text'],
-                str(category['total_count']),
-                f"{category['percent']:.1f}%"
+                cluster_data['master_name'],
+                f"• {cluster_data['cluster_name']}",
+                str(cluster_data['cluster_count']),
+                f"{cluster_data['percent']:.1f}%"
             ])
         
-        # Увеличиваем ширину колонок для лучшего отображения
-        table = Table(table_data, colWidths=[2.2*inch, 2.8*inch, 0.7*inch, 0.7*inch])
+        # Создаём таблицу
+        table = Table(table_data, colWidths=[2.5*inch, 2.5*inch, 0.7*inch, 0.7*inch])
         
-        # Упрощаем стиль таблицы
+        # Стиль таблицы
         table_style = TableStyle([
             # Заголовок
             ('BACKGROUND', (0, 0), (-1, 0), self.COLOR_MASTER_CAT),
@@ -392,17 +388,17 @@ class PDFReportGenerator:
             ('FONTNAME', (0, 0), (-1, 0), 'DejaVuSans'),
             ('FONTSIZE', (0, 0), (-1, 0), self.FONT_BODY),
             ('ALIGN', (0, 0), (-1, 0), 'CENTER'),
-            
-            # Данные
             ('FONTNAME', (0, 1), (-1, -1), 'DejaVuSans'),
-            ('FONTSIZE', (0, 1), (-1, -1), self.FONT_SMALL - 1),  # Чуть меньше шрифт
+            ('FONTSIZE', (0, 1), (-1, -1), self.FONT_SMALL),
+            
+            # Выравнивание
             ('ALIGN', (0, 1), (0, -1), 'LEFT'),
             ('ALIGN', (1, 1), (1, -1), 'LEFT'),
             ('ALIGN', (2, 1), (-1, -1), 'CENTER'),
-            ('VALIGN', (0, 0), (-1, -1), 'TOP'),
+            ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
             
             # Переносы строк
-            ('WORDWRAP', (0, 0), (-1, -1), True),  # Включаем перенос слов
+            ('WORDWRAP', (0, 0), (-1, -1), True),
             
             # Чередующиеся строки
             ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, self.COLOR_BACKGROUND]),
@@ -413,23 +409,29 @@ class PDFReportGenerator:
             ('BOX', (0, 0), (-1, -1), 0.5, self.COLOR_DIVIDER),
             
             # Отступы
-            ('TOPPADDING', (0, 0), (-1, -1), 6),
-            ('BOTTOMPADDING', (0, 0), (-1, -1), 6),
-            ('LEFTPADDING', (0, 0), (-1, -1), 4),
-            ('RIGHTPADDING', (0, 0), (-1, -1), 4),
-            
-            # Высота строк
-            ('MINIMUMHEIGHT', (0, 0), (-1, -1), 15),
+            ('TOPPADDING', (0, 0), (-1, -1), 8),
+            ('BOTTOMPADDING', (0, 0), (-1, -1), 8),
+            ('LEFTPADDING', (0, 0), (-1, -1), 6),
+            ('RIGHTPADDING', (0, 0), (-1, -1), 6),
         ])
+        
+        # Добавляем визуальное разделение мастер-категорий (опционально)
+        current_master_idx = None
+        for i in range(1, len(table_data)):
+            master_name = table_data[i][0]
+            if master_name != current_master_idx and master_name:  # Новая категория
+                current_master_idx = master_name
+                # Легкий фон для первой строки каждой категории
+                table_style.add('BACKGROUND', (0, i), (-1, i), colors.HexColor('#F0F8FF'))
         
         table.setStyle(table_style)
         elements.append(table)
         
-        # Добавляем пояснение о сортировке
+        # Статистика
         elements.append(Spacer(1, self.SPACER_SMALL))
         elements.append(self._create_paragraph(
-            "📊 <i>Сортировка: мастер-категории по убыванию количества текстов, "
-            "кластеры внутри категорий по убыванию размера</i>",
+            f"📊 Всего: {len(self.master_hierarchy)} мастер-категорий, "
+            f"{len(all_clusters_data)} кластеров",
             'CustomSmall'
         ))
         
