@@ -227,8 +227,8 @@ class PDFReportGenerator:
         
         elements.append(self._create_paragraph(
             "Анализ текстовых данных с использованием алгоритма кластеризации. "
-            "Документ содержит статистику, визуализации и детальное описание выявленных групп."
-            "Сгенерировано автоматически с помощью @cluster_master_bot",
+            "Документ содержит статистику, визуализации и детальное описание выявленных групп. "
+            "Сгенерировано с помощью @cluster_master_bot",
             'CustomBody'
         ))
         
@@ -502,7 +502,7 @@ class PDFReportGenerator:
             
             for i, text in enumerate(cluster_texts, 1):
                 # Обрезаем и экранируем
-                text_preview = str(text)[:180] + "..." if len(str(text)) > 180 else str(text)
+                text_preview = str(text)[:250] + "..." if len(str(text)) > 250 else str(text)
                 text_preview = text_preview.replace('<', '&lt;').replace('>', '&gt;').replace('&', '&amp;')
                 
                 elements.append(self._create_paragraph(
