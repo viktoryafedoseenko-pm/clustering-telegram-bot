@@ -91,6 +91,7 @@ def create_hierarchy(topics, topic_model, embeddings, n_master_categories=7):
     
     return hierarchy, master_topics, cluster_to_master
 
+
 def generate_master_category_names(hierarchy, cluster_names, topics, df):
     """
     Генерирует названия для мастер-категорий
@@ -113,8 +114,8 @@ def generate_master_category_names(hierarchy, cluster_names, topics, df):
         
         # === 2. Пробуем LLM ===
         if YANDEX_API_KEY and YANDEX_FOLDER_ID:
-            # Берём топ-5 крупнейших подкластеров
-            top_subs = sub_info[:5]
+            # Берём топ-7 крупнейших подкластеров
+            top_subs = sub_info[:7]
             sub_descriptions = "\n".join([
                 f"- {name} ({size} обращений)"
                 for name, size in top_subs
@@ -139,7 +140,7 @@ def generate_master_category_names(hierarchy, cluster_names, topics, df):
                 examples_text = "\n".join([f"- {ex}" for ex in clean_examples[:8]])
                 
                 prompt = f"""
-Ты аналитик обращений пользователей в техподдержку онлайн-платформы.
+Ты аналитик обращений пользователей.
 
 Перед тобой группа связанных категорий обращений:
 
@@ -173,7 +174,7 @@ def generate_master_category_names(hierarchy, cluster_names, topics, df):
                             "completionOptions": {
                                 "stream": False,
                                 "temperature": 0.4,
-                                "maxTokens": 30
+                                "maxTokens": 40
                             },
                             "messages": [{"role": "user", "text": prompt}]
                         },
@@ -223,11 +224,11 @@ def generate_master_category_names(hierarchy, cluster_names, topics, df):
                 ])
                 
                 if clean_name and len(clean_name) > 3:
-                    master_names[master_id] = f"📁 {clean_name.capitalize()}"
+                    master_names[master_id] = f"{clean_name.capitalize()}"
                 else:
-                    master_names[master_id] = f"📁 Категория {master_id}"
+                    master_names[master_id] = f"Категория {master_id}"
             else:
-                master_names[master_id] = f"📁 Категория {master_id}"
+                master_names[master_id] = f"Категория {master_id}"
             
             print(f"   ✅ {master_names[master_id]} (fallback)")
     
