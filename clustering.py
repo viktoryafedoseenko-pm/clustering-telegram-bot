@@ -694,8 +694,8 @@ def clusterize_texts(file_path: str, progress_callback=None):
             'calinski_harabasz_score': 0.0
         }
 
-        ENABLE_CLUSTER_MERGING = False
-        
+        ENABLE_CLUSTER_MERGING = True
+
         if ENABLE_CLUSTER_MERGING:
             sync_log("🔗 Объединение похожих кластеров...")
             topics, merge_map = merge_similar_clusters(
