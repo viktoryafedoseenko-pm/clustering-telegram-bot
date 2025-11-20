@@ -318,25 +318,36 @@ class PDFReportGenerator:
         ))
         elements.append(Spacer(1, self.SPACER_MEDIUM))
         
-        # Создаём данные для таблицы мастер-категорий
-        table_data = [["Мастер-категория", "Входящие кластеры", "Количество", "Доля"]]
+        # Собираем данные и сортируем мастер-категории по размеру (от большей к меньшей)
+        master_categories_data = []
         
-        for master_id, sub_clusters in sorted(self.master_hierarchy.items()):
+        for master_id, sub_clusters in self.master_hierarchy.items():
             master_name = self.master_names.get(master_id, f"Категория {master_id}")
             
             # Считаем общее количество текстов в мастер-категории
             total_count = 0
             cluster_details = []
             
+            # Собираем информацию о кластерах внутри категории
             for cluster_id in sub_clusters:
                 cluster_count = len(self.df[self.df['cluster_id'] == cluster_id])
                 total_count += cluster_count
                 cluster_name = self.cluster_names.get(cluster_id, f"Кластер {cluster_id}")
-                # Убираем HTML-теги и ограничиваем длину
-                clean_name = cluster_name.replace('•', '').replace('■', '').strip()
+                cluster_details.append({
+                    'name': cluster_name,
+                    'count': cluster_count
+                })
+            
+            # Сортируем кластеры внутри категории по размеру (от большего к меньшему)
+            cluster_details.sort(key=lambda x: x['count'], reverse=True)
+            
+            # Форматируем отображение кластеров
+            formatted_clusters = []
+            for cluster in cluster_details:
+                clean_name = cluster['name'].replace('•', '').replace('■', '').strip()
                 if len(clean_name) > 35:
                     clean_name = clean_name[:35] + "..."
-                cluster_details.append(f"• {clean_name}")
+                formatted_clusters.append(f"• {clean_name} ({cluster['count']})")
             
             percent = (total_count / len(self.df)) * 100
             
@@ -344,16 +355,30 @@ class PDFReportGenerator:
             if len(master_name) > 40:
                 master_name = master_name[:40] + "..."
             
-            # Объединяем детали кластеров (максимум 3)
-            clusters_text = "<br/>".join(cluster_details[:3])
-            if len(cluster_details) > 3:
-                clusters_text += f"<br/>... и ещё {len(cluster_details) - 3}"
+            # Объединяем детали кластеров (максимум 4)
+            clusters_text = "<br/>".join(formatted_clusters[:4])
+            if len(formatted_clusters) > 4:
+                clusters_text += f"<br/>... и ещё {len(formatted_clusters) - 4}"
             
+            master_categories_data.append({
+                'master_name': master_name,
+                'clusters_text': clusters_text,
+                'total_count': total_count,
+                'percent': percent
+            })
+        
+        # Сортируем мастер-категории по количеству текстов (от большей к меньшей)
+        master_categories_data.sort(key=lambda x: x['total_count'], reverse=True)
+        
+        # Создаём данные для таблицы
+        table_data = [["Мастер-категория", "Входящие кластеры", "Количество", "Доля"]]
+        
+        for category in master_categories_data:
             table_data.append([
-                master_name,
-                clusters_text,
-                str(total_count),
-                f"{percent:.1f}%"
+                category['master_name'],
+                category['clusters_text'],
+                str(category['total_count']),
+                f"{category['percent']:.1f}%"
             ])
         
         # Увеличиваем ширину колонок для лучшего отображения
@@ -399,6 +424,14 @@ class PDFReportGenerator:
         
         table.setStyle(table_style)
         elements.append(table)
+        
+        # Добавляем пояснение о сортировке
+        elements.append(Spacer(1, self.SPACER_SMALL))
+        elements.append(self._create_paragraph(
+            "📊 <i>Сортировка: мастер-категории по убыванию количества текстов, "
+            "кластеры внутри категорий по убыванию размера</i>",
+            'CustomSmall'
+        ))
         
         return elements
     

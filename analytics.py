@@ -126,15 +126,21 @@ def _generate_extended_csv(
             # Процент
             percent = round((size / len(df)) * 100, 2)
             
-            # ДОБАВЛЯЕМ: Определяем мастер-категорию
+            # Определяем мастер-категорию
             master_category = ""
             master_category_id = ""
+            master_category_size = 0
             
             if master_hierarchy:
                 for master_id, sub_clusters in master_hierarchy.items():
                     if cluster_id in sub_clusters:
                         master_category = master_names.get(master_id, f"Категория {master_id}")
                         master_category_id = master_id
+                        # Считаем размер мастер-категории для сортировки
+                        master_category_size = sum(
+                            len(df[df['cluster_id'] == cid]) 
+                            for cid in sub_clusters
+                        )
                         break
             
             stats_data.append({
@@ -142,28 +148,27 @@ def _generate_extended_csv(
                 'cluster_name': name,
                 'master_category_id': master_category_id,
                 'master_category_name': master_category,
+                'master_category_size': master_category_size,  # Для сортировки
                 'size': int(size),
                 'percent': percent
             })
         
-        # Сохранение
+        # Сохранение с улучшенной сортировкой
         cluster_stats = pd.DataFrame(stats_data)
         
-        # ДОБАВЛЯЕМ: Сортируем по мастер-категориям и размеру
         if master_hierarchy:
-            # Создаем порядок сортировки по мастер-категориям
-            category_order = {master_id: idx for idx, master_id in enumerate(master_hierarchy.keys())}
-            cluster_stats['master_order'] = cluster_stats['master_category_id'].map(
-                lambda x: category_order.get(x, 999)
+            # Сортируем сначала по размеру мастер-категории (убывание), потом по размеру кластера (убывание)
+            cluster_stats = cluster_stats.sort_values(
+                ['master_category_size', 'size'], 
+                ascending=[False, False]
             )
-            cluster_stats = cluster_stats.sort_values(['master_order', 'size'], ascending=[True, False])
-            cluster_stats = cluster_stats.drop('master_order', axis=1)
+            cluster_stats = cluster_stats.drop('master_category_size', axis=1)
         else:
             cluster_stats = cluster_stats.sort_values('size', ascending=False)
         
         cluster_stats.to_csv(output_path, index=False, encoding='utf-8')
         
-        logger.info(f"✅ Extended CSV with master categories saved: {output_path}")
+        logger.info(f"✅ Extended CSV with sorted master categories saved: {output_path}")
         
     except Exception as e:
         logger.error(f"❌ Error in _generate_extended_csv: {e}", exc_info=True)
