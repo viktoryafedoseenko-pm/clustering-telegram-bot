@@ -50,6 +50,7 @@ class PDFReportGenerator:
     COLOR_ACCENT = colors.HexColor('#007ACC')       # Акцентный цвет
     COLOR_DIVIDER = colors.HexColor('#DDDDDD')      # Разделители
     COLOR_BACKGROUND = colors.HexColor('#F8F8F8')   # Легкий фон
+    COLOR_MASTER_CAT = colors.HexColor('#2E7D32')   # Цвет для мастер-категорий
     
     # Размеры шрифтов
     FONT_TITLE = 18
@@ -63,10 +64,12 @@ class PDFReportGenerator:
     SPACER_MEDIUM = 0.2 * inch
     SPACER_SMALL = 0.1 * inch
     
-    def __init__(self, df: pd.DataFrame, stats: dict, cluster_names: dict):
+    def __init__(self, df: pd.DataFrame, stats: dict, cluster_names: dict, master_hierarchy: dict = None, master_names: dict = None):
         self.df = df
         self.stats = stats
         self.cluster_names = cluster_names
+        self.master_hierarchy = master_hierarchy or {}
+        self.master_names = master_names or {}
         self.styles = self._setup_styles()
     
     def _setup_styles(self):
@@ -98,6 +101,18 @@ class PDFReportGenerator:
             textColor=self.COLOR_PRIMARY,
             spaceAfter=10,
             spaceBefore=12
+        ))
+        
+        # Заголовок мастер-категории
+        styles.add(ParagraphStyle(
+            name='MasterCategory',
+            parent=styles['Heading1'],
+            fontName=heading_font,
+            fontSize=self.FONT_HEADING,
+            textColor=self.COLOR_MASTER_CAT,
+            spaceAfter=8,
+            spaceBefore=16,
+            leftIndent=10
         ))
         
         # Подзаголовок
@@ -173,17 +188,23 @@ class PDFReportGenerator:
             story.extend(self._create_title_page())
             story.append(PageBreak())
             
-            # 2. Статистика
+            # 2. Мастер-категории (если есть)
+            if self.master_hierarchy:
+                logger.info("🏷️ Creating master categories page...")
+                story.extend(self._create_master_categories_page())
+                story.append(PageBreak())
+            
+            # 3. Статистика
             logger.info("📊 Creating statistics page...")
             story.extend(self._create_statistics_page())
             story.append(PageBreak())
             
-            # 3. Графики
+            # 4. Графики
             logger.info("📈 Creating charts...")
             story.extend(self._create_charts_page())
             story.append(PageBreak())
             
-            # 4. Топ-10 кластеров
+            # 5. Топ-10 кластеров
             logger.info("🏷️ Creating cluster pages...")
             story.extend(self._create_clusters_pages())
             
@@ -225,12 +246,12 @@ class PDFReportGenerator:
         ))
         elements.append(Spacer(1, self.SPACER_SMALL))
         
-        elements.append(self._create_paragraph(
-            "Анализ текстовых данных с использованием алгоритма кластеризации. "
-            "Документ содержит статистику, визуализации и детальное описание выявленных групп. "
-            "Сгенерировано с помощью @cluster_master_bot",
-            'CustomBody'
-        ))
+        description = "Анализ текстовых данных с использованием алгоритма кластеризации. "
+        if self.master_hierarchy:
+            description += "Включает иерархическую структуру мастер-категорий. "
+        description += "Сгенерировано с помощью @cluster_master_bot"
+        
+        elements.append(self._create_paragraph(description, 'CustomBody'))
         
         elements.append(Spacer(1, self.SPACER_MEDIUM))
         elements.append(self._create_divider(width="80%", thickness=1))
@@ -250,6 +271,9 @@ class PDFReportGenerator:
             ["Средний размер кластера", f"{self.stats['avg_cluster_size']:.0f} текстов"],
             ["Шум (не кластеризовано)", f"{self.stats['noise_percent']:.1f}%"],
         ]
+
+        if self.master_hierarchy:
+            stats_data.insert(1, ["Мастер-категорий", f"{len(self.master_hierarchy)}"])
 
         if 'quality_metrics' in self.stats:
             qm = self.stats['quality_metrics']
@@ -271,6 +295,88 @@ class PDFReportGenerator:
             ('LINEBELOW', (0, 0), (-1, 0), 0.5, self.COLOR_DIVIDER),
             ('TOPPADDING', (0, 0), (-1, -1), 8),
             ('BOTTOMPADDING', (0, 0), (-1, -1), 8),
+        ]))
+        
+        elements.append(table)
+        
+        return elements
+    
+    def _create_master_categories_page(self):
+        """Страница с мастер-категориями"""
+        elements = []
+        
+        elements.append(self._create_paragraph(
+            "Мастер-категории",
+            'CustomHeading'
+        ))
+        elements.append(Spacer(1, self.SPACER_SMALL))
+        
+        elements.append(self._create_paragraph(
+            "Иерархическая группировка кластеров в тематические категории, "
+            "сгенерированные с помощью LLM.",
+            'CustomBody'
+        ))
+        elements.append(Spacer(1, self.SPACER_MEDIUM))
+        
+        # Создаём данные для таблицы мастер-категорий
+        table_data = [["Мастер-категория", "Входящие кластеры", "Количество", "Доля"]]
+        
+        for master_id, sub_clusters in sorted(self.master_hierarchy.items()):
+            master_name = self.master_names.get(master_id, f"Категория {master_id}")
+            
+            # Считаем общее количество текстов в мастер-категории
+            total_count = 0
+            cluster_details = []
+            
+            for cluster_id in sub_clusters:
+                cluster_count = len(self.df[self.df['cluster_id'] == cluster_id])
+                total_count += cluster_count
+                cluster_name = self.cluster_names.get(cluster_id, f"Кластер {cluster_id}")
+                cluster_details.append(f"• {cluster_name}")
+            
+            percent = (total_count / len(self.df)) * 100
+            
+            # Объединяем детали кластеров
+            clusters_text = "<br/>".join(cluster_details[:5])  # Показываем первые 5
+            if len(cluster_details) > 5:
+                clusters_text += f"<br/>... и ещё {len(cluster_details) - 5}"
+            
+            table_data.append([
+                master_name,
+                clusters_text,
+                str(total_count),
+                f"{percent:.1f}%"
+            ])
+        
+        table = Table(table_data, colWidths=[2*inch, 2.5*inch, 0.8*inch, 0.7*inch])
+        table.setStyle(TableStyle([
+            # Заголовок
+            ('BACKGROUND', (0, 0), (-1, 0), self.COLOR_MASTER_CAT),
+            ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
+            ('FONTNAME', (0, 0), (-1, 0), 'DejaVuSans'),
+            ('FONTSIZE', (0, 0), (-1, 0), self.FONT_BODY),
+            ('FONTNAME', (0, 1), (-1, -1), 'DejaVuSans'),
+            ('FONTSIZE', (0, 1), (-1, -1), self.FONT_SMALL),
+            
+            # Выравнивание
+            ('ALIGN', (0, 0), (0, -1), 'LEFT'),
+            ('ALIGN', (1, 0), (1, -1), 'LEFT'),
+            ('ALIGN', (2, 0), (-1, -1), 'CENTER'),
+            ('VALIGN', (0, 0), (-1, -1), 'TOP'),
+            
+            # Чередующиеся строки
+            ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, self.COLOR_BACKGROUND]),
+            
+            # Рамки
+            ('LINEBELOW', (0, 0), (-1, 0), 1, self.COLOR_MASTER_CAT),
+            ('LINEBELOW', (0, 1), (-1, -1), 0.5, self.COLOR_DIVIDER),
+            ('BOX', (0, 0), (-1, -1), 0.5, self.COLOR_DIVIDER),
+            
+            # Отступы
+            ('TOPPADDING', (0, 0), (-1, -1), 8),
+            ('BOTTOMPADDING', (0, 0), (-1, -1), 8),
+            ('LEFTPADDING', (0, 0), (-1, -1), 6),
+            ('RIGHTPADDING', (0, 0), (-1, -1), 6),
         ]))
         
         elements.append(table)
@@ -476,6 +582,14 @@ class PDFReportGenerator:
             cluster_name = self.cluster_names.get(cluster_id, f"Кластер {cluster_id}")
             percent = (count / len(self.df)) * 100
             
+            # Определяем мастер-категорию (если есть)
+            master_category = ""
+            if self.master_hierarchy:
+                for master_id, sub_clusters in self.master_hierarchy.items():
+                    if cluster_id in sub_clusters:
+                        master_category = self.master_names.get(master_id, f"Категория {master_id}")
+                        break
+            
             # Заголовок кластера
             elements.append(self._create_paragraph(
                 f"Кластер {cluster_id}: {cluster_name}",
@@ -483,8 +597,11 @@ class PDFReportGenerator:
             ))
             elements.append(Spacer(1, self.SPACER_SMALL))
             
-            # Статистика
+            # Статистика с мастер-категорией
             stats_text = f"Размер: {count} текстов ({percent:.1f}% от общего объёма)"
+            if master_category:
+                stats_text += f"<br/>Мастер-категория: {master_category}"
+            
             elements.append(self._create_paragraph(stats_text, 'CustomBody'))
             
             elements.append(Spacer(1, self.SPACER_SMALL))

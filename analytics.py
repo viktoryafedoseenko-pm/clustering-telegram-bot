@@ -44,6 +44,12 @@ async def generate_detailed_report(
     stats = data['stats']
     cluster_names = data['cluster_names']
     
+    # ДОБАВЛЯЕМ: Получаем мастер-категории из кеша
+    master_hierarchy = data.get('hierarchy', {})
+    master_names = data.get('master_names', {})
+    
+    logger.info(f"🏷️ Master categories: {len(master_hierarchy)} hierarchies, {len(master_names)} names")
+    
     # Пути для результатов
     pdf_path = TEMP_DIR / f"report_{user_id}_{cache_key[:8]}.pdf"
     csv_path = TEMP_DIR / f"extended_stats_{user_id}_{cache_key[:8]}.csv"
@@ -52,8 +58,14 @@ async def generate_detailed_report(
     loop = asyncio.get_event_loop()
     
     try:
-        # PDF
-        generator = PDFReportGenerator(df, stats, cluster_names)
+        # PDF с мастер-категориями
+        generator = PDFReportGenerator(
+            df=df,
+            stats=stats, 
+            cluster_names=cluster_names,
+            master_hierarchy=master_hierarchy,    # ← ДОБАВЛЯЕМ
+            master_names=master_names             # ← ДОБАВЛЯЕМ
+        )
         success = await loop.run_in_executor(
             executor,
             generator.generate,
@@ -63,11 +75,11 @@ async def generate_detailed_report(
         if not success:
             return None
         
-        # Extended CSV
+        # Extended CSV с мастер-категориями
         await loop.run_in_executor(
             executor,
             _generate_extended_csv,
-            df, cluster_names, str(csv_path)
+            df, cluster_names, str(csv_path), master_hierarchy, master_names  # ← ДОБАВЛЯЕМ
         )
         
         return str(pdf_path), str(csv_path)
@@ -76,8 +88,14 @@ async def generate_detailed_report(
         print(f"⚠️ Error generating report: {e}")
         return None
 
-def _generate_extended_csv(df: pd.DataFrame, cluster_names: dict, output_path: str):
-    """Генерирует расширенную статистику в CSV"""
+def _generate_extended_csv(
+    df: pd.DataFrame, 
+    cluster_names: dict, 
+    output_path: str,
+    master_hierarchy: dict = None,
+    master_names: dict = None
+):
+    """Генерирует расширенную статистику в CSV с мастер-категориями"""
     import logging
     logger = logging.getLogger(__name__)
     
@@ -96,6 +114,7 @@ def _generate_extended_csv(df: pd.DataFrame, cluster_names: dict, output_path: s
         cluster_counts = df['cluster_id'].value_counts().sort_values(ascending=False)
         
         logger.info(f"📊 Found {len(cluster_counts)} clusters")
+        logger.info(f"🏷️ Master categories: {len(master_hierarchy or {})} hierarchies")
         
         # Создаём таблицу
         stats_data = []
@@ -107,18 +126,44 @@ def _generate_extended_csv(df: pd.DataFrame, cluster_names: dict, output_path: s
             # Процент
             percent = round((size / len(df)) * 100, 2)
             
+            # ДОБАВЛЯЕМ: Определяем мастер-категорию
+            master_category = ""
+            master_category_id = ""
+            
+            if master_hierarchy:
+                for master_id, sub_clusters in master_hierarchy.items():
+                    if cluster_id in sub_clusters:
+                        master_category = master_names.get(master_id, f"Категория {master_id}")
+                        master_category_id = master_id
+                        break
+            
             stats_data.append({
                 'cluster_id': cluster_id,
                 'cluster_name': name,
+                'master_category_id': master_category_id,
+                'master_category_name': master_category,
                 'size': int(size),
                 'percent': percent
             })
         
         # Сохранение
         cluster_stats = pd.DataFrame(stats_data)
+        
+        # ДОБАВЛЯЕМ: Сортируем по мастер-категориям и размеру
+        if master_hierarchy:
+            # Создаем порядок сортировки по мастер-категориям
+            category_order = {master_id: idx for idx, master_id in enumerate(master_hierarchy.keys())}
+            cluster_stats['master_order'] = cluster_stats['master_category_id'].map(
+                lambda x: category_order.get(x, 999)
+            )
+            cluster_stats = cluster_stats.sort_values(['master_order', 'size'], ascending=[True, False])
+            cluster_stats = cluster_stats.drop('master_order', axis=1)
+        else:
+            cluster_stats = cluster_stats.sort_values('size', ascending=False)
+        
         cluster_stats.to_csv(output_path, index=False, encoding='utf-8')
         
-        logger.info(f"✅ Extended CSV saved: {output_path}")
+        logger.info(f"✅ Extended CSV with master categories saved: {output_path}")
         
     except Exception as e:
         logger.error(f"❌ Error in _generate_extended_csv: {e}", exc_info=True)
