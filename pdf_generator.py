@@ -302,7 +302,7 @@ class PDFReportGenerator:
         return elements
     
     def _create_master_categories_page(self):
-        """Страница с мастер-категориями - каждая строка = один кластер"""
+        """Страница с мастер-категориями - раздельные таблицы"""
         elements = []
         
         elements.append(self._create_paragraph(
@@ -313,198 +313,168 @@ class PDFReportGenerator:
         
         elements.append(self._create_paragraph(
             "Иерархическая группировка кластеров в тематические категории, "
-            "сгенерированные с помощью LLM. Каждая строка представляет один кластер.",
+            "сгенерированные с помощью LLM.",
             'CustomBody'
         ))
         elements.append(Spacer(1, self.SPACER_MEDIUM))
         
-        # Собираем все данные для таблицы
-        table_data = [["Мастер-категория", "Кластер", "Количество", "Доля"]]
+        # ==========================================================================
+        # 1. ТАБЛИЦА МАСТЕР-КАТЕГОРИЙ (только названия и доли)
+        # ==========================================================================
         
-        # Собираем все кластеры с их мастер-категориями
-        all_clusters_data = []
+        elements.append(self._create_paragraph(
+            "Обзор мастер-категорий",
+            'CustomSubheading'
+        ))
+        elements.append(Spacer(1, self.SPACER_SMALL))
         
+        # Собираем данные для мастер-категорий
+        master_stats = []
         for master_id, sub_clusters in self.master_hierarchy.items():
             master_name = self.master_names.get(master_id, f"Категория {master_id}")
+            total_count = sum(len(self.df[self.df['cluster_id'] == cid]) for cid in sub_clusters)
+            percent = (total_count / len(self.df)) * 100
+            n_clusters = len(sub_clusters)
             
-            # Считаем общее количество текстов в мастер-категории для сортировки
-            master_total_count = sum(
-                len(self.df[self.df['cluster_id'] == cluster_id])
-                for cluster_id in sub_clusters
-            )
+            master_stats.append({
+                'name': master_name,
+                'count': total_count,
+                'percent': percent,
+                'n_clusters': n_clusters,
+                'master_id': master_id
+            })
+        
+        # Сортируем по размеру
+        master_stats.sort(key=lambda x: x['count'], reverse=True)
+        
+        # Создаём таблицу мастер-категорий
+        master_table_data = [["Мастер-категория", "Кластеров", "Текстов", "Доля"]]
+        
+        for master in master_stats:
+            master_table_data.append([
+                master['name'],
+                str(master['n_clusters']),
+                str(master['count']),
+                f"{master['percent']:.1f}%"
+            ])
+        
+        master_table = Table(master_table_data, colWidths=[3.5*inch, 0.8*inch, 0.8*inch, 0.8*inch])
+        master_table.setStyle(TableStyle([
+            ('FONTNAME', (0, 0), (-1, -1), 'DejaVuSans'),
+            ('FONTSIZE', (0, 0), (-1, -1), self.FONT_SMALL),
+            ('BACKGROUND', (0, 0), (-1, 0), self.COLOR_MASTER_CAT),
+            ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
+            ('ALIGN', (0, 0), (-1, 0), 'CENTER'),
+            ('ALIGN', (0, 1), (0, -1), 'LEFT'),
+            ('ALIGN', (1, 1), (-1, -1), 'CENTER'),
+            ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+            ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, self.COLOR_BACKGROUND]),
+            ('LINEBELOW', (0, 0), (-1, 0), 1, self.COLOR_MASTER_CAT),
+            ('LINEBELOW', (0, 1), (-1, -1), 0.5, self.COLOR_DIVIDER),
+            ('TOPPADDING', (0, 0), (-1, -1), 6),
+            ('BOTTOMPADDING', (0, 0), (-1, -1), 6),
+            ('LEFTPADDING', (0, 0), (-1, -1), 4),
+            ('RIGHTPADDING', (0, 0), (-1, -1), 4),
+        ]))
+        
+        elements.append(master_table)
+        elements.append(Spacer(1, self.SPACER_LARGE))
+        
+        # ==========================================================================
+        # 2. ТАБЛИЦЫ КЛАСТЕРОВ ПО КАТЕГОРИЯМ (отдельно для каждой мастер-категории)
+        # ==========================================================================
+        
+        elements.append(self._create_paragraph(
+            "Распределение кластеров по категориям",
+            'CustomSubheading'
+        ))
+        elements.append(Spacer(1, self.SPACER_SMALL))
+        
+        # Создаём таблицы для каждой мастер-категории
+        for master in master_stats:
+            master_id = master['master_id']
+            master_name = master['name']
             
-            # Собираем информацию о каждом кластере внутри категории
+            # Заголовок категории
+            elements.append(self._create_paragraph(
+                f"📁 {master_name}",
+                'CustomBody'
+            ))
+            elements.append(Spacer(1, self.SPACER_SMALL))
+            
+            # Собираем кластеры этой категории
+            cluster_data = []
+            sub_clusters = self.master_hierarchy[master_id]
+            
             for cluster_id in sub_clusters:
                 cluster_count = len(self.df[self.df['cluster_id'] == cluster_id])
                 cluster_name = self.cluster_names.get(cluster_id, f"Кластер {cluster_id}")
                 percent = (cluster_count / len(self.df)) * 100
                 
-                # Очищаем название от спецсимволов
-                clean_cluster_name = cluster_name.replace('•', '').replace('■', '').strip()
-                if len(clean_cluster_name) > 50:
-                    clean_cluster_name = clean_cluster_name[:50] + "..."
+                # Очищаем название
+                clean_name = cluster_name.replace('•', '').replace('■', '').strip()
+                if len(clean_name) > 60:
+                    clean_name = clean_name[:60] + "..."
                 
-                # Ограничиваем длину названия мастер-категории
-                clean_master_name = master_name
-                if len(clean_master_name) > 40:
-                    clean_master_name = clean_master_name[:40] + "..."
-                
-                all_clusters_data.append({
-                    'master_name': clean_master_name,
-                    'master_total_count': master_total_count,
-                    'cluster_name': clean_cluster_name,
-                    'cluster_count': cluster_count,
+                cluster_data.append({
+                    'name': clean_name,
+                    'count': cluster_count,
                     'percent': percent
                 })
-        
-        # Сортируем: сначала по размеру мастер-категории, потом по размеру кластера (оба по убыванию)
-        all_clusters_data.sort(key=lambda x: (x['master_total_count'], x['cluster_count']), reverse=True)
-        
-        # Заполняем таблицу
-        current_master = None
-        for cluster_data in all_clusters_data:
-            # Если сменилась мастер-категория, можно добавить разделитель (опционально)
-            if cluster_data['master_name'] != current_master:
-                current_master = cluster_data['master_name']
-                # Можно добавить пустую строку для разделения (раскомментировать если нужно)
-                # if len(table_data) > 1:  # Не добавлять перед первой строкой
-                #     table_data.append(["", "", "", ""])
             
-            table_data.append([
-                cluster_data['master_name'],
-                f"• {cluster_data['cluster_name']}",
-                str(cluster_data['cluster_count']),
-                f"{cluster_data['percent']:.1f}%"
-            ])
-        
-        # Создаём таблицу
-        table = Table(table_data, colWidths=[2.5*inch, 2.5*inch, 0.7*inch, 0.7*inch])
-        
-        # Стиль таблицы
-        table_style = TableStyle([
-            # Заголовок
-            ('BACKGROUND', (0, 0), (-1, 0), self.COLOR_MASTER_CAT),
-            ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
-            ('FONTNAME', (0, 0), (-1, 0), 'DejaVuSans'),
-            ('FONTSIZE', (0, 0), (-1, 0), self.FONT_BODY),
-            ('ALIGN', (0, 0), (-1, 0), 'CENTER'),
-            ('FONTNAME', (0, 1), (-1, -1), 'DejaVuSans'),
-            ('FONTSIZE', (0, 1), (-1, -1), self.FONT_SMALL),
+            # Сортируем кластеры по размеру
+            cluster_data.sort(key=lambda x: x['count'], reverse=True)
             
-            # Выравнивание
-            ('ALIGN', (0, 1), (0, -1), 'LEFT'),
-            ('ALIGN', (1, 1), (1, -1), 'LEFT'),
-            ('ALIGN', (2, 1), (-1, -1), 'CENTER'),
-            ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+            # Создаём таблицу для этой категории
+            cluster_table_data = [["Кластер", "Текстов", "Доля"]]
             
-            # Переносы строк
-            ('WORDWRAP', (0, 0), (-1, -1), True),
+            for cluster in cluster_data:
+                cluster_table_data.append([
+                    cluster['name'],
+                    str(cluster['count']),
+                    f"{cluster['percent']:.1f}%"
+                ])
             
-            # Чередующиеся строки
-            ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, self.COLOR_BACKGROUND]),
+            cluster_table = Table(cluster_table_data, colWidths=[4.0*inch, 0.8*inch, 0.8*inch])
+            cluster_table.setStyle(TableStyle([
+                ('FONTNAME', (0, 0), (-1, -1), 'DejaVuSans'),
+                ('FONTSIZE', (0, 0), (-1, -1), self.FONT_SMALL),
+                ('BACKGROUND', (0, 0), (-1, 0), self.COLOR_ACCENT),
+                ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
+                ('ALIGN', (0, 0), (-1, 0), 'CENTER'),
+                ('ALIGN', (0, 1), (0, -1), 'LEFT'),
+                ('ALIGN', (1, 1), (-1, -1), 'CENTER'),
+                ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+                ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.HexColor('#F8F8F8')]),
+                ('LINEBELOW', (0, 0), (-1, 0), 1, self.COLOR_ACCENT),
+                ('LINEBELOW', (0, 1), (-1, -1), 0.5, self.COLOR_DIVIDER),
+                ('TOPPADDING', (0, 0), (-1, -1), 4),
+                ('BOTTOMPADDING', (0, 0), (-1, -1), 4),
+                ('LEFTPADDING', (0, 0), (-1, -1), 4),
+                ('RIGHTPADDING', (0, 0), (-1, -1), 4),
+            ]))
             
-            # Рамки
-            ('LINEBELOW', (0, 0), (-1, 0), 1, self.COLOR_MASTER_CAT),
-            ('LINEBELOW', (0, 1), (-1, -1), 0.5, self.COLOR_DIVIDER),
-            ('BOX', (0, 0), (-1, -1), 0.5, self.COLOR_DIVIDER),
-            
-            # Отступы
-            ('TOPPADDING', (0, 0), (-1, -1), 8),
-            ('BOTTOMPADDING', (0, 0), (-1, -1), 8),
-            ('LEFTPADDING', (0, 0), (-1, -1), 6),
-            ('RIGHTPADDING', (0, 0), (-1, -1), 6),
-        ])
+            elements.append(cluster_table)
+            elements.append(Spacer(1, self.SPACER_MEDIUM))
         
-        # Добавляем визуальное разделение мастер-категорий (опционально)
-        current_master_idx = None
-        for i in range(1, len(table_data)):
-            master_name = table_data[i][0]
-            if master_name != current_master_idx and master_name:  # Новая категория
-                current_master_idx = master_name
-                # Легкий фон для первой строки каждой категории
-                table_style.add('BACKGROUND', (0, i), (-1, i), colors.HexColor('#F0F8FF'))
+        # ==========================================================================
+        # 3. ИТОГОВАЯ СТАТИСТИКА
+        # ==========================================================================
         
-        table.setStyle(table_style)
-        elements.append(table)
-        
-        # Статистика
+        elements.append(self._create_divider())
         elements.append(Spacer(1, self.SPACER_SMALL))
+        
+        total_clusters = sum(len(sub_clusters) for sub_clusters in self.master_hierarchy.values())
+        total_texts = len(self.df)
+        
         elements.append(self._create_paragraph(
-            f"📊 Всего: {len(self.master_hierarchy)} мастер-категорий, "
-            f"{len(all_clusters_data)} кластеров",
+            f"📊 Итог: {len(self.master_hierarchy)} мастер-категорий, "
+            f"{total_clusters} кластеров, {total_texts} текстов",
             'CustomSmall'
         ))
         
         return elements
     
-    def _create_statistics_page(self):
-        """Страница со статистикой"""
-        elements = []
-        
-        # Заголовок секции
-        elements.append(self._create_paragraph(
-            "Распределение кластеров",
-            'CustomHeading'
-        ))
-        elements.append(Spacer(1, self.SPACER_SMALL))
-        
-        elements.append(self._create_paragraph(
-            "В таблице представлены крупнейшие кластеры, "
-            "упорядоченные по количеству текстов.",
-            'CustomBody'
-        ))
-        elements.append(Spacer(1, self.SPACER_MEDIUM))
-        
-        # Таблица распределения
-        cluster_dist = self.df['cluster_id'].value_counts().sort_values(ascending=False)
-        
-        table_data = [["ID", "Название кластера", "Количество", "Доля"]]
-        
-        for cluster_id, count in cluster_dist.head(15).items():
-            name = self.cluster_names.get(cluster_id, f"Кластер {cluster_id}")
-            percent = (count / len(self.df)) * 100
-            
-            table_data.append([
-                str(cluster_id),
-                name[:45],
-                str(count),
-                f"{percent:.1f}%"
-            ])
-        
-        table = Table(table_data, colWidths=[0.6*inch, 3.2*inch, 1*inch, 0.8*inch])
-        table.setStyle(TableStyle([
-            # Заголовок
-            ('BACKGROUND', (0, 0), (-1, 0), self.COLOR_ACCENT),
-            ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
-            ('FONTNAME', (0, 0), (-1, 0), 'DejaVuSans'),
-            ('FONTSIZE', (0, 0), (-1, 0), self.FONT_BODY),
-            ('FONTNAME', (0, 1), (-1, -1), 'DejaVuSans'),
-            ('FONTSIZE', (0, 1), (-1, -1), self.FONT_SMALL),
-            
-            # Выравнивание
-            ('ALIGN', (0, 0), (0, -1), 'CENTER'),
-            ('ALIGN', (1, 0), (1, -1), 'LEFT'),
-            ('ALIGN', (2, 0), (-1, -1), 'CENTER'),
-            ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
-            
-            # Чередующиеся строки
-            ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, self.COLOR_BACKGROUND]),
-            
-            # Рамки
-            ('LINEBELOW', (0, 0), (-1, 0), 1, self.COLOR_ACCENT),
-            ('LINEBELOW', (0, 1), (-1, -1), 0.5, self.COLOR_DIVIDER),
-            ('BOX', (0, 0), (-1, -1), 0.5, self.COLOR_DIVIDER),
-            
-            # Отступы
-            ('TOPPADDING', (0, 0), (-1, -1), 8),
-            ('BOTTOMPADDING', (0, 0), (-1, -1), 8),
-            ('LEFTPADDING', (0, 0), (-1, -1), 6),
-            ('RIGHTPADDING', (0, 0), (-1, -1), 6),
-        ]))
-        
-        elements.append(table)
-        
-        return elements
     
     def _create_charts_page(self):
         """Страница с графиками"""
