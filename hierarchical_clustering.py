@@ -1,8 +1,18 @@
 # hierarchical_clustering.py
 
+import os
+import requests
+import json
+from dotenv import load_dotenv
 from sklearn.cluster import AgglomerativeClustering
 from sklearn.metrics.pairwise import cosine_similarity
 import numpy as np
+    
+load_dotenv()
+    
+#YandexGPT Integration
+YANDEX_API_KEY = os.getenv('YANDEX_API_KEY')
+YANDEX_FOLDER_ID = os.getenv('YANDEX_FOLDER_ID')
 
 def create_hierarchy(topics, topic_model, embeddings, n_master_categories=7):
     """
@@ -81,27 +91,144 @@ def create_hierarchy(topics, topic_model, embeddings, n_master_categories=7):
     
     return hierarchy, master_topics, cluster_to_master
 
-
-def generate_master_category_names(hierarchy, cluster_names, topic_model, df):
+def generate_master_category_names(hierarchy, cluster_names, topics, df):
     """
     Генерирует названия для мастер-категорий
     """
     master_names = {}
     
-    for master_id, sub_clusters in hierarchy.items():
-        # Собираем названия подкластеров
-        sub_names = [cluster_names.get(cid, f"Кластер {cid}") for cid in sub_clusters]
+    for master_id, sub_clusters in sorted(hierarchy.items()):
+        print(f"\n🔄 Генерация названия для категории {master_id}...")
         
-        # Вариант 1: Простое объединение (без LLM)
-        # Берём самый крупный подкластер как название
-        largest_sub = max(sub_clusters, 
-                         key=lambda cid: sum(1 for t in topics if t == cid))
-        master_names[master_id] = f"🗂 {cluster_names.get(largest_sub, 'Категория')}"
+        # === 1. Собираем названия подкластеров ===
+        sub_info = []
+        for cid in sub_clusters:
+            name = cluster_names.get(cid, f"Кластер {cid}")
+            size = sum(1 for t in topics if t == cid)
+            sub_info.append((name, size))
         
-        print(f"\nМастер-категория {master_id}:")
-        print(f"  Название: {master_names[master_id]}")
-        print(f"  Включает: {', '.join(sub_names[:5])}")
-        if len(sub_names) > 5:
-            print(f"            ... и ещё {len(sub_names)-5}")
+        sub_info.sort(key=lambda x: x[1], reverse=True)
+        
+        llm_success = False  # Флаг для отслеживания успеха LLM
+        
+        # === 2. Пробуем LLM ===
+        if YANDEX_API_KEY and YANDEX_FOLDER_ID:
+            # Берём топ-5 крупнейших подкластеров
+            top_subs = sub_info[:5]
+            sub_descriptions = "\n".join([
+                f"- {name} ({size} обращений)"
+                for name, size in top_subs
+            ])
+            
+            # Берём примеры реальных текстов
+            examples = []
+            for cid in sub_clusters[:4]:
+                cluster_mask = [t == cid for t in topics]
+                cluster_texts = df[cluster_mask].iloc[:, 0].head(5).tolist()
+                examples.extend(cluster_texts)
+            
+            # Очищаем примеры от мусора
+            clean_examples = []
+            for ex in examples:
+                if isinstance(ex, str) and len(ex) > 20 and len(ex) < 200:
+                    clean_examples.append(ex[:150])
+            
+            if len(clean_examples) < 3:
+                print(f"   ⚠️ Мало примеров для LLM ({len(clean_examples)}), используем fallback")
+            else:
+                examples_text = "\n".join([f"- {ex}" for ex in clean_examples[:8]])
+                
+                prompt = f"""
+Ты аналитик обращений пользователей в техподдержку онлайн-платформы.
+
+Перед тобой группа связанных категорий обращений:
+
+{sub_descriptions}
+
+Примеры реальных обращений из этой группы:
+{examples_text}
+
+Задание:
+Придумай ОДНО короткое обобщающее название (3-6 слов) для всей группы категорий.
+
+Требования:
+- На русском языке
+- Без эмодзи и технических символов
+- Понятное для не-технического человека
+- Отражает суть проблем/вопросов
+
+Ответь ТОЛЬКО названием, без пояснений.
+
+Название:"""
+
+                try:
+                    response = requests.post(
+                        "https://llm.api.cloud.yandex.net/foundationModels/v1/completion",
+                        headers={
+                            "Authorization": f"Api-Key {YANDEX_API_KEY}",
+                            "Content-Type": "application/json"
+                        },
+                        json={
+                            "modelUri": f"gpt://{YANDEX_FOLDER_ID}/yandexgpt-lite/latest",
+                            "completionOptions": {
+                                "stream": False,
+                                "temperature": 0.4,
+                                "maxTokens": 30
+                            },
+                            "messages": [{"role": "user", "text": prompt}]
+                        },
+                        timeout=15
+                    )
+                    
+                    if response.status_code == 200:
+                        result = response.json()
+                        
+                        if "result" in result:
+                            name = result['result']['alternatives'][0]['message']['text'].strip()
+                            name = name.replace('Название:', '').strip().strip('"\'')
+                            
+                            # ДЕТАЛЬНАЯ ОТЛАДКА
+                            print(f"   🔍 Получено от LLM: '{name}'")
+                            print(f"   🔍 Длина: {len(name)}")
+                            
+                            # Валидация
+                            if (len(name) > 5 and 
+                                len(name) < 50 and 
+                                not any(bad in name.lower() for bad in ['column', 'row', 'robot', 'pad', 'forms'])):
+                                
+                                master_names[master_id] = f"📁 {name}"
+                                print(f"   ✅ {master_names[master_id]} (от LLM)")
+                                llm_success = True
+                            else:
+                                print(f"   ⚠️ LLM вернул невалидное название")
+                        else:
+                            print(f"   ⚠️ Неожиданная структура ответа API: {result}")
+                    
+                    else:
+                        print(f"   ⚠️ API вернул код {response.status_code}: {response.text}")
+                
+                except Exception as e:
+                    print(f"   ⚠️ Ошибка LLM: {e}")
+        
+        # === 3. FALLBACK: Используем только если LLM не сработал ===
+        if not llm_success:
+            if sub_info:
+                largest_name, largest_size = sub_info[0]
+                
+                # Очищаем название
+                clean_name = largest_name
+                clean_name = ' '.join([
+                    word for word in clean_name.split()
+                    if len(word) > 2 and not word.lower() in ['row', 'column', 'pad', 'robot', 'forms', 'data']
+                ])
+                
+                if clean_name and len(clean_name) > 3:
+                    master_names[master_id] = f"📁 {clean_name.capitalize()}"
+                else:
+                    master_names[master_id] = f"📁 Категория {master_id}"
+            else:
+                master_names[master_id] = f"📁 Категория {master_id}"
+            
+            print(f"   ✅ {master_names[master_id]} (fallback)")
     
     return master_names

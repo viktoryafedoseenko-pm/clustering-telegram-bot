@@ -29,6 +29,7 @@ import requests
 import json
 from dotenv import load_dotenv
 from metrics import ClusteringMetrics
+from hierarchical_clustering import create_hierarchy, generate_master_category_names
 
 
 load_dotenv()
@@ -598,17 +599,16 @@ def clusterize_texts(file_path: str, progress_callback=None):
         n_components = 8
     else:
         # Для больших датасетов (30к+)
-        min_cluster_size = 55
+        min_cluster_size = 45
         min_samples = 10
-        n_neighbors = 50
-        n_components = 10
+        n_neighbors = 55
+        n_components = 12
 
     # Логируем параметры
     print(f"🎯 Параметры кластеризации для {n_unique} текстов:")
     print(f"   min_cluster_size = {min_cluster_size}")
     print(f"   min_samples = {min_samples}")
     print(f"   n_neighbors = {n_neighbors}")
-
 
     umap_model = UMAP(
         n_neighbors=n_neighbors,
@@ -677,7 +677,7 @@ def clusterize_texts(file_path: str, progress_callback=None):
         sync_log(f"⚠️ Ошибка: {e}")
         raise
 
-    # 🆕 ПОЛУЧАЕМ EMBEDDINGS ДЛЯ МЕТРИК
+    # Получаем эмбединги для метрик
     sync_log("📊 Вычисление метрик качества...")
     try:
         embeddings = topic_model._extract_embeddings(
@@ -766,14 +766,68 @@ def clusterize_texts(file_path: str, progress_callback=None):
         else:
             cluster_names[cluster_id] = f"Кластер {cluster_id}"
 
-    # Теперь просто маппим кластеры к названиям
+    # ========================================
+    # Создание иерархии
+    # ========================================
+
+    # Сохраняем базовую кластеризацию
     df["cluster_id"] = topics
-    df["cluster_name"] = [cluster_names[t] for t in topics]
+    df["cluster_name"] = [cluster_names.get(t, "Шум") for t in topics]
+
+    # Создаём иерархии (мастер-категории)
+    sync_log("🗂️ Создание иерархии категорий...")
+
+    try:
+        # Определяем количество мастер-категорий в зависимости от числа кластеров
+        n_clusters = len([c for c in set(topics) if c != -1])
+        
+        if n_clusters <= 7:
+            # Если кластеров мало, иерархия не нужна
+            sync_log(f"   Кластеров мало ({n_clusters}), иерархия не нужна")
+            df["master_category_id"] = df["cluster_id"]
+            df["master_category_name"] = df["cluster_name"]
+        
+        else:
+            # Создаём иерархию
+            n_master = min(10, max(5, n_clusters // 7))  # 5-10 категорий
+            sync_log(f"   Объединяем {n_clusters} кластеров в {n_master} категорий...")
+            
+            hierarchy, master_topics, cluster_to_master = create_hierarchy(
+                topics=topics,
+                topic_model=topic_model,
+                embeddings=embeddings,
+                n_master_categories=n_master
+            )
+            
+            # Генерируем названия мастер-категорий
+            master_names = generate_master_category_names(
+                hierarchy=hierarchy,
+                cluster_names=cluster_names,
+                topics=topics,
+                df=df
+            )
+            
+            # Добавляем в DataFrame
+            df["master_category_id"] = master_topics
+            df["master_category_name"] = [
+                master_names.get(t, "Прочее") if t != -1 else "Шум"
+                for t in master_topics
+            ]
+            
+            sync_log(f"✅ Создано {len(hierarchy)} мастер-категорий")
+
+    except Exception as e:
+        sync_log(f"⚠️ Ошибка создания иерархии: {e}")
+        # Fallback: используем кластеры как категории
+        df["master_category_id"] = df["cluster_id"]
+        df["master_category_name"] = df["cluster_name"]
+
+    # Конец блока иерархии
+    # ========================================
 
     # Нормализация названий кластеров
     import re
 
-    # clustering.py
     def normalize_cluster_name(name: str) -> str:
         """Лёгкая нормализация — только очевидные дубли"""
         if not isinstance(name, str):
@@ -793,7 +847,7 @@ def clusterize_texts(file_path: str, progress_callback=None):
         }
         
         for old, new in replacements.items():
-            if name == old:  # ← Только точное совпадение!
+            if name == old:  
                 name = new
         
         return name.title()
@@ -801,74 +855,10 @@ def clusterize_texts(file_path: str, progress_callback=None):
     df["cluster_name"] = df["cluster_name"].apply(normalize_cluster_name)
     df["cluster_name"] = df["cluster_name"].apply(lambda x: x.capitalize() if isinstance(x, str) else x)
 
-    # Мастер-категории, автогенерация через llm
-    def generate_master_categories_yandex(cluster_names):
-        # собираем примеры
-        examples = "\n".join([f"- {n}" for n in cluster_names])
-
-        prompt = f"""
-    Ты — аналитик обращений пользователей платформы.
-    Перед тобой список названий кластеров (тем) обращений.
-    Нужно объединить их в несколько мастер-категорий (4–8 штук).
-
-    Правила:
-    - Группируй только по смыслу.
-    - Название каждой категории должно быть коротким (2–4 слова).
-    - Не добавляй ничего, кроме JSON.
-    - Верни JSON, где ключ — название категории, а значение — список кластеров, которые в неё входят.
-
-    Пример формата ответа:
-    {{
-    "Финансовые вопросы": ["Оплата", "Проблемы с оплатой"],
-    "Документы и дипломы": ["Получение диплома", "Диплом и документы"],
-    "Учебные вопросы": ["Помощь с курсами", "Вопросы по обучению"]
-    }}
-
-    Вот список кластеров для группировки:
-    {examples}
-    """
-
-        url = "https://llm.api.cloud.yandex.net/foundationModels/v1/completion"
-        headers = {
-            "Authorization": f"Api-Key {YANDEX_API_KEY}",
-            "Content-Type": "application/json"
-        }
-        data = {
-            "modelUri": f"gpt://{YANDEX_FOLDER_ID}/yandexgpt-lite/latest",
-            "completionOptions": {"stream": False, "temperature": 0.3, "maxTokens": 700},
-            "messages": [{"role": "user", "text": prompt}]
-        }
-
-        response = requests.post(url, headers=headers, json=data)
-        text = response.json()["result"]["alternatives"][0]["message"]["text"]
-
-        # безопасный парсинг JSON
-        try:
-            parsed = json.loads(text)
-        except json.JSONDecodeError:
-            print("⚠️ Не удалось распарсить JSON, ответ LLM:")
-            print(text)
-            parsed = {"Прочее": cluster_names}
-        return parsed
-
-
-    # Генерируем мастер-категории
-    unique_names = df["cluster_name"].dropna().unique().tolist()
-    auto_categories = generate_master_categories_yandex(unique_names)
-
-    # Маппинг кластера -> мастер-категория
-    def map_to_master(name):
-        for cat, subs in auto_categories.items():
-            if name in subs:
-                return cat
-        return "Прочее"
-
-    df["master_category"] = df["cluster_name"].apply(map_to_master)
-
     # Статистика
     print("\n📊 Статистика по категориям:")
     stats = (
-        df.groupby("master_category")
+        df.groupby("master_category_name")
         .agg(Кластеров=("cluster_name", "nunique"))
         .sort_values("Кластеров", ascending=False)
     )
@@ -878,17 +868,48 @@ def clusterize_texts(file_path: str, progress_callback=None):
     stats = calculate_metrics(topics, cluster_names, topic_model)
     sync_log(f"✅ {stats['n_clusters']} кластеров за {time.time()-start_time:.1f}с")
 
-    # Сохранение
+    # Упорядочиваем колонки для удобства
+    column_order = [
+        df.columns[0], 
+        'master_category_id',
+        'master_category_name',
+        'cluster_id',
+        'cluster_name',
+    ]
+
+    # Добавляем остальные колонки если есть
+    for col in df.columns:
+        if col not in column_order:
+            column_order.append(col)
+
+    df = df[column_order]
+
+    # Сохраняем
     out = file_path.replace(".csv", "_clustered.csv")
     df.to_csv(out, index=False, encoding='utf-8')
+
+    sync_log(f"💾 Результат сохранён: {out}")
+
 
     stats = calculate_metrics(topics, cluster_names, topic_model)
     
     # Добавляем метрики качества в stats
     stats['quality_metrics'] = quality_metrics
-    
     sync_log(f"✅ {stats['n_clusters']} кластеров за {time.time()-start_time:.1f}с")
     
+    if 'hierarchy' in stats:
+        sync_log("\n📊 Мастер-категории:")
+        
+        master_info = stats['hierarchy']['master_category_name']
+        sorted_masters = sorted(
+            master_info.items(),
+            key=lambda x: x[1]['n_texts'],
+            reverse=True
+        )
+        
+        for master_id, info in sorted_masters[:5]:  # Топ-5
+            sync_log(f"   {info['name']}: {info['n_texts']} текстов ({info['n_subclusters']} подкатегорий)")
+
     # Сохранение
     out = file_path.replace(".csv", "_clustered.csv")
     df.to_csv(out, index=False, encoding='utf-8')
