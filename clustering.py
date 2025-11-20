@@ -576,7 +576,7 @@ def clusterize_texts(file_path: str, progress_callback=None):
     vectorizer_model = CountVectorizer(
         ngram_range=(1, 2),
         stop_words=list(ALL_STOP_WORDS), 
-        min_df=1,  
+        min_df=1,        # Минимально возможное значение
         max_df=0.8,    
         max_features=1800  
     )
@@ -694,22 +694,24 @@ def clusterize_texts(file_path: str, progress_callback=None):
             'calinski_harabasz_score': 0.0
         }
 
-    # Объединение кластеров (временно отключили)
-    # sync_log("🔗 Объединение похожих кластеров...")
-    # topics, merge_map = merge_similar_clusters(
-    #     topics, 
-    #     topic_model, 
-    #     pd.DataFrame({0: unique_texts}),
-    #     similarity_threshold=0.70
-    # )
+        ENABLE_CLUSTER_MERGING = False
+        
+        if ENABLE_CLUSTER_MERGING:
+            sync_log("🔗 Объединение похожих кластеров...")
+            topics, merge_map = merge_similar_clusters(
+                topics, 
+                topic_model, 
+                pd.DataFrame({0: unique_texts}),
+                similarity_threshold=0.70
+            )
 
-    # Обновляем topic_model.get_topic_info() после объединения
-    # BERTopic нужно пересчитать топики
-    # if merge_map:
-    #      sync_log("📊 Пересчёт статистики после объединения...")
-    #     # Обновляем топики в модели
-    #    topic_model.topics_ = topics
-    #    sync_log(f"✅ Объединено {len(merge_map)} пар кластеров")
+            # Обновляем topic_model.get_topic_info() после объединения
+            # BERTopic нужно пересчитать топики
+            if merge_map:
+                sync_log("📊 Пересчёт статистики после объединения...")
+                # Обновляем топики в модели
+                topic_model.topics_ = topics
+                sync_log(f"✅ Объединено {len(merge_map)} пар кластеров")
 
     quality_metrics = ClusteringMetrics.calculate(embeddings, topics)
     sync_log(f"✅ Метрики: Silhouette={quality_metrics['silhouette_score']:.3f}, DB={quality_metrics['davies_bouldin_index']:.3f}")
