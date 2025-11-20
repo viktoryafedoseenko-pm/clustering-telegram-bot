@@ -598,10 +598,10 @@ def clusterize_texts(file_path: str, progress_callback=None):
         n_components = 8
     else:
         # Для больших датасетов (30к+)
-        min_cluster_size = 52
+        min_cluster_size = 55
         min_samples = 10
-        n_neighbors = 55
-        n_components = 12
+        n_neighbors = 50
+        n_components = 10
 
     # Логируем параметры
     print(f"🎯 Параметры кластеризации для {n_unique} текстов:")
