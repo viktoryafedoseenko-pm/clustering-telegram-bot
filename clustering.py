@@ -584,7 +584,6 @@ def clusterize_texts(file_path: str, progress_callback=None):
 
     print(f"📊 Параметры CountVectorizer: min_df=1, max_df=1.0 (безопасный режим)")
 
-
     # Адаптивная настройка под размер данных
     if n_unique < 500:
         # Для маленьких датасетов
@@ -668,7 +667,6 @@ def clusterize_texts(file_path: str, progress_callback=None):
         return filtered
 
 
-
     # Кластеризация
     sync_log(f"🎯 Кластеризация (min_size={min_cluster_size})...")
     try:
@@ -705,7 +703,6 @@ def clusterize_texts(file_path: str, progress_callback=None):
                 similarity_threshold=0.70
             )
 
-            # Обновляем topic_model.get_topic_info() после объединения
             # BERTopic нужно пересчитать топики
             if merge_map:
                 sync_log("📊 Пересчёт статистики после объединения...")
@@ -776,6 +773,9 @@ def clusterize_texts(file_path: str, progress_callback=None):
 
     # Создаём иерархии (мастер-категории)
     sync_log("🗂️ Создание иерархии категорий...")
+
+    hierarchy = {}
+    master_names = {}
 
     try:
         # Определяем количество мастер-категорий в зависимости от числа кластеров
@@ -914,4 +914,4 @@ def clusterize_texts(file_path: str, progress_callback=None):
     out = file_path.replace(".csv", "_clustered.csv")
     df.to_csv(out, index=False, encoding='utf-8')
     
-    return out, stats
+    return out, stats, hierarchy, master_names

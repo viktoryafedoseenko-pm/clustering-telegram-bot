@@ -233,7 +233,7 @@ async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
             except:
                 pass
         
-        result_path, stats = clusterize_texts(file_path, progress_callback)
+        result_path, stats, hierarchy, master_names = clusterize_texts(file_path, progress_callback)
         
         # Шаг 4: Формирование статистики
         stats_message = format_statistics(stats)
@@ -263,7 +263,9 @@ async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 row['cluster_id']: row['cluster_name']
                 for _, row in df_cached[['cluster_id', 'cluster_name']].drop_duplicates().iterrows()
             },
-            'file_name': update.message.document.file_name
+            'file_name': update.message.document.file_name,
+            'hierarchy': hierarchy,
+            'master_names': master_names
         }
         
         cache_key = cache.save(
