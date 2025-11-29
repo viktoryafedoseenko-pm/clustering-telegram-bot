@@ -2,6 +2,7 @@
 import logging
 import os
 import asyncio
+from pathlib import Path
 from dotenv import load_dotenv
 import html
 import pandas as pd
@@ -355,7 +356,7 @@ async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
         try:
             if file_path and os.path.exists(file_path):
                 os.remove(file_path)
-            if result_path and os.path.exists(result_path) and not cache_key:
+            if result_path and os.path.exists(result_path) and cache_key:
                 os.remove(result_path)
         except:
             pass

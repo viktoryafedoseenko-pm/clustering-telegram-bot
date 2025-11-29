@@ -769,16 +769,32 @@ def clusterize_texts(file_path: str, progress_callback=None):
     # Создаём иерархии (мастер-категории)
     sync_log("🗂️ Создание иерархии категорий...")
 
+    def _build_fallback_hierarchy():
+        """Возвращает плоскую иерархию: каждый кластер = своя мастер-категория"""
+        base_hierarchy = {
+            cluster_id: [cluster_id]
+            for cluster_id in unique_clusters
+            if cluster_id != -1
+        }
+        base_master_names = {
+            cluster_id: cluster_names.get(cluster_id, f"Кластер {cluster_id}")
+            for cluster_id in base_hierarchy
+        }
+        base_master_topics = topics
+        return base_hierarchy, base_master_names, base_master_topics
+    
     hierarchy = {}
     master_names = {}
+    master_topics = topics
 
     try:
         # Определяем количество мастер-категорий в зависимости от числа кластеров
         n_clusters = len([c for c in set(topics) if c != -1])
         
         if n_clusters <= 7:
-            # Если кластеров мало, иерархия не нужна
-            sync_log(f"   Кластеров мало ({n_clusters}), иерархия не нужна")
+            # Если кластеров мало, используем плоскую иерархию
+            sync_log(f"   Кластеров мало ({n_clusters}), используем базовую иерархию")
+            hierarchy, master_names, master_topics = _build_fallback_hierarchy()
             df["master_category_id"] = df["cluster_id"]
             df["master_category_name"] = df["cluster_name"]
         
@@ -817,6 +833,7 @@ def clusterize_texts(file_path: str, progress_callback=None):
     except Exception as e:
         sync_log(f"⚠️ Ошибка создания иерархии: {e}")
         # Fallback: используем кластеры как категории
+        hierarchy, master_names, master_topics = _build_fallback_hierarchy()
         df["master_category_id"] = df["cluster_id"]
         df["master_category_name"] = df["cluster_name"]
 
