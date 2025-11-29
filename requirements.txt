@@ -65,3 +65,4 @@ tzdata==2025.2
 umap-learn==0.5.5
 urllib3==2.5.0
 wheel==0.45.1
+sentence-transformers>=2.2.0
