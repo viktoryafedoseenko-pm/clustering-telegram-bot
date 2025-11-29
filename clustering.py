@@ -585,6 +585,7 @@ def clusterize_texts(file_path: str, progress_callback=None):
     print(f"📊 Параметры CountVectorizer: min_df=1, max_df=1.0 (безопасный режим)")
 
     # Адаптивная настройка под размер данных
+    n_components = 10  # базовое значение, безопасное для маленьких датасетов
     if n_unique < 500:
         # Для маленьких датасетов
         min_cluster_size = 5
@@ -677,6 +678,7 @@ def clusterize_texts(file_path: str, progress_callback=None):
 
     # Получаем эмбединги для метрик
     sync_log("📊 Вычисление метрик качества...")
+    embeddings = None
     try:
         embeddings = topic_model._extract_embeddings(
             unique_texts,
@@ -710,8 +712,9 @@ def clusterize_texts(file_path: str, progress_callback=None):
                 topic_model.topics_ = topics
                 sync_log(f"✅ Объединено {len(merge_map)} пар кластеров")
 
-    quality_metrics = ClusteringMetrics.calculate(embeddings, topics)
-    sync_log(f"✅ Метрики: Silhouette={quality_metrics['silhouette_score']:.3f}, DB={quality_metrics['davies_bouldin_index']:.3f}")
+    if embeddings is not None:
+        quality_metrics = ClusteringMetrics.calculate(embeddings, topics)
+        sync_log(f"✅ Метрики: Silhouette={quality_metrics['silhouette_score']:.3f}, DB={quality_metrics['davies_bouldin_index']:.3f}")
 
     # Названия (с дополнительной фильтрацией)
     if YANDEX_API_KEY and YANDEX_FOLDER_ID:
@@ -722,16 +725,8 @@ def clusterize_texts(file_path: str, progress_callback=None):
     info = topic_model.get_topic_info()
     cluster_names = {}
 
-    # Генерируем названия только для уникальных кластеров
-    unique_clusters = set(topics)  # Используем обновлённые topics!
-
-    for cluster_id in unique_clusters:
-        if cluster_id == -1:
-            cluster_names[cluster_id] = "Прочее"
-            continue
-
     # Сначала генерируем названия для всех уникальных кластеров
-    unique_clusters = set(topics)
+    unique_clusters = set(topics)  # Используем обновлённые topics!
     for cluster_id in unique_clusters:
         if cluster_id == -1:
             cluster_names[cluster_id] = "🔹 Прочее"
@@ -791,6 +786,9 @@ def clusterize_texts(file_path: str, progress_callback=None):
             # Создаём иерархию
             n_master = min(10, max(5, n_clusters // 7))  # 5-10 категорий
             sync_log(f"   Объединяем {n_clusters} кластеров в {n_master} категорий...")
+            
+            if embeddings is None:
+                raise ValueError("Embeddings недоступны, пропускаем иерархию")
             
             hierarchy, master_topics, cluster_to_master = create_hierarchy(
                 topics=topics,
@@ -863,10 +861,6 @@ def clusterize_texts(file_path: str, progress_callback=None):
         .sort_values("Кластеров", ascending=False)
     )
     print(stats)
-
-    # Метрики
-    stats = calculate_metrics(topics, cluster_names, topic_model)
-    sync_log(f"✅ {stats['n_clusters']} кластеров за {time.time()-start_time:.1f}с")
 
     # Упорядочиваем колонки для удобства
     column_order = [

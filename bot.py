@@ -243,14 +243,6 @@ async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if insight_text:
             stats_message += f"\n\n💡 <b>Инсайт:</b>\n{html.escape(insight_text)}"
 
-        # Шаг 6: Базовая статистика
-        stats_message = format_statistics(stats)
-        
-        # Шаг 7: Формирование инсайта
-        insight_text = generate_insight_yandex(stats)
-        if insight_text:
-            stats_message += f"\n\n💡 <b>Инсайт:</b>\n{html.escape(insight_text)}"
-
         stats_message += "\n\n✨ Готово! Хотите проанализировать другие тексты? Отправляйте новый файл — я готов!"
 
         # Сохраняем в кэш (перед отправкой файла)
