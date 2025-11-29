@@ -17,20 +17,34 @@ class ClusteringParams:
     description: str = ""
 
 
-def get_clustering_params(n_texts: int) -> ClusteringParams:
+def get_clustering_params(n_texts: int, embedding_dim: int = 384) -> ClusteringParams:
     """
     Подбирает оптимальные параметры в зависимости от размера датасета
+    и размерности эмбедингов
     
     Args:
         n_texts: количество уникальных текстов
+        embedding_dim: размерность эмбединг-модели (312, 384, 512, 768...)
     
     Returns:
         ClusteringParams с настройками
     """
     
-    # 10 диапазонов (вместо 3)
+    # === КОРРЕКЦИЯ ПОД РАЗМЕРНОСТЬ ===
+    # Модели с меньшей размерностью требуют более мягких параметров
+    dim_factor = embedding_dim / 384.0  # 384 — baseline (твоя старая модель)
+    
+    # Для маленьких моделей (rubert-tiny2: 312) → dim_factor = 0.81
+    # Нужно УМЕНЬШИТЬ min_cluster_size, чтобы не терять кластеры
+    size_multiplier = max(0.6, min(1.2, dim_factor))  # от 0.6 до 1.2
+    
+    # Для больших моделей (mpnet: 768) → dim_factor = 2.0
+    # Можно увеличить n_components для лучшего разделения
+    component_multiplier = max(0.8, min(1.5, dim_factor))
+    
+    # === БАЗОВЫЕ ПАРАМЕТРЫ ПО РАЗМЕРУ ДАТАСЕТА ===
     if n_texts < 50:
-        return ClusteringParams(
+        base_params = ClusteringParams(
             min_cluster_size=3,
             min_samples=1,
             n_neighbors=5,
@@ -39,7 +53,7 @@ def get_clustering_params(n_texts: int) -> ClusteringParams:
         )
     
     elif n_texts < 100:
-        return ClusteringParams(
+        base_params = ClusteringParams(
             min_cluster_size=4,
             min_samples=2,
             n_neighbors=8,
@@ -48,7 +62,7 @@ def get_clustering_params(n_texts: int) -> ClusteringParams:
         )
     
     elif n_texts < 250:
-        return ClusteringParams(
+        base_params = ClusteringParams(
             min_cluster_size=5,
             min_samples=2,
             n_neighbors=10,
@@ -57,7 +71,7 @@ def get_clustering_params(n_texts: int) -> ClusteringParams:
         )
     
     elif n_texts < 500:
-        return ClusteringParams(
+        base_params = ClusteringParams(
             min_cluster_size=7,
             min_samples=3,
             n_neighbors=15,
@@ -66,7 +80,7 @@ def get_clustering_params(n_texts: int) -> ClusteringParams:
         )
     
     elif n_texts < 1000:
-        return ClusteringParams(
+        base_params = ClusteringParams(
             min_cluster_size=10,
             min_samples=3,
             n_neighbors=20,
@@ -75,7 +89,7 @@ def get_clustering_params(n_texts: int) -> ClusteringParams:
         )
     
     elif n_texts < 2500:
-        return ClusteringParams(
+        base_params = ClusteringParams(
             min_cluster_size=15,
             min_samples=4,
             n_neighbors=25,
@@ -84,7 +98,7 @@ def get_clustering_params(n_texts: int) -> ClusteringParams:
         )
     
     elif n_texts < 5000:
-        return ClusteringParams(
+        base_params = ClusteringParams(
             min_cluster_size=20,
             min_samples=5,
             n_neighbors=30,
@@ -93,7 +107,7 @@ def get_clustering_params(n_texts: int) -> ClusteringParams:
         )
     
     elif n_texts < 10000:
-        return ClusteringParams(
+        base_params = ClusteringParams(
             min_cluster_size=30,
             min_samples=7,
             n_neighbors=40,
@@ -102,7 +116,7 @@ def get_clustering_params(n_texts: int) -> ClusteringParams:
         )
     
     elif n_texts < 30000:
-        return ClusteringParams(
+        base_params = ClusteringParams(
             min_cluster_size=45,
             min_samples=10,
             n_neighbors=55,
@@ -111,13 +125,24 @@ def get_clustering_params(n_texts: int) -> ClusteringParams:
         )
     
     else:  # >= 30000
-        return ClusteringParams(
+        base_params = ClusteringParams(
             min_cluster_size=60,
             min_samples=15,
             n_neighbors=70,
             n_components=15,
             description="Массивный датасет (30K+)"
         )
+    
+    # === ПРИМЕНЯЕМ КОРРЕКЦИЮ ===
+    adjusted_params = ClusteringParams(
+        min_cluster_size=max(3, int(base_params.min_cluster_size * size_multiplier)),
+        min_samples=base_params.min_samples,
+        n_neighbors=base_params.n_neighbors,
+        n_components=max(5, int(base_params.n_components * component_multiplier)),
+        description=f"{base_params.description} | embedding_dim={embedding_dim}"
+    )
+    
+    return adjusted_params
 
 
 def estimate_n_clusters(n_texts: int) -> Tuple[int, int]:

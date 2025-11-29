@@ -31,7 +31,7 @@ from dotenv import load_dotenv
 from metrics import ClusteringMetrics
 from hierarchical_clustering import create_hierarchy, generate_master_category_names
 from config import EMBEDDING_MODEL
-from cluster_params import get_clustering_params, estimate_n_clusters
+from cluster_params import get_clustering_params, estimate_n_clusters  # type: ignore
 
 
 load_dotenv()
@@ -591,10 +591,12 @@ def clusterize_texts(file_path: str, progress_callback=None):
     print(f"📊 Параметры CountVectorizer: min_df=1, max_df=1.0 (безопасный режим)")
 
     # Адаптивная настройка под размер данных
-    params = get_clustering_params(n_unique)
+    embedding_dim = model.get_sentence_embedding_dimension()  # Получаем размерность модели
+    params = get_clustering_params(n_unique, embedding_dim)
     sync_log(f"🎯 {params.description}")
     sync_log(f"   Параметры: min_size={params.min_cluster_size}, "
-            f"samples={params.min_samples}, neighbors={params.n_neighbors}")
+            f"samples={params.min_samples}, neighbors={params.n_neighbors}, "
+            f"components={params.n_components}")
 
     min_expected, max_expected = estimate_n_clusters(n_unique)
     sync_log(f"   Ожидается кластеров: {min_expected}-{max_expected}")
