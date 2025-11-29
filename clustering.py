@@ -31,6 +31,7 @@ from dotenv import load_dotenv
 from metrics import ClusteringMetrics
 from hierarchical_clustering import create_hierarchy, generate_master_category_names
 from config import EMBEDDING_MODEL
+from cluster_params import get_clustering_params, estimate_n_clusters
 
 
 load_dotenv()
@@ -590,24 +591,19 @@ def clusterize_texts(file_path: str, progress_callback=None):
     print(f"📊 Параметры CountVectorizer: min_df=1, max_df=1.0 (безопасный режим)")
 
     # Адаптивная настройка под размер данных
-    n_components = 10  # базовое значение, безопасное для маленьких датасетов
-    if n_unique < 500:
-        # Для маленьких датасетов
-        min_cluster_size = 5
-        min_samples = 2
-        n_neighbors = 10
-    elif n_unique < 5000:
-        # Для 500-5000 текстов
-        min_cluster_size = 11  
-        min_samples = 3
-        n_neighbors = 20
-        n_components = 8
-    else:
-        # Для больших датасетов (30к+)
-        min_cluster_size = 45
-        min_samples = 10
-        n_neighbors = 55
-        n_components = 12
+    params = get_clustering_params(n_unique)
+    sync_log(f"🎯 {params.description}")
+    sync_log(f"   Параметры: min_size={params.min_cluster_size}, "
+            f"samples={params.min_samples}, neighbors={params.n_neighbors}")
+
+    min_expected, max_expected = estimate_n_clusters(n_unique)
+    sync_log(f"   Ожидается кластеров: {min_expected}-{max_expected}")
+
+    # Используем параметры
+    min_cluster_size = params.min_cluster_size
+    min_samples = params.min_samples
+    n_neighbors = params.n_neighbors
+    n_components = params.n_components
 
     # Логируем параметры
     print(f"🎯 Параметры кластеризации для {n_unique} текстов:")
