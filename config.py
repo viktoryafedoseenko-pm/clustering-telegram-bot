@@ -23,3 +23,12 @@ FONT_PATH = FONTS_DIR / "DejaVuSans.ttf"
 # API
 YANDEX_API_KEY = os.getenv('YANDEX_API_KEY')
 YANDEX_FOLDER_ID = os.getenv('YANDEX_FOLDER_ID')
+
+# Настройки дефолтной эмбединг-модели
+DEFAULT_EMBEDDING_MODEL = "paraphrase-multilingual-MiniLM-L12-v2"  # Текущая (fallback)
+
+# Настройка эмбединг модели через .env
+EMBEDDING_MODEL = os.getenv(
+    "EMBEDDING_MODEL", 
+    DEFAULT_EMBEDDING_MODEL
+)

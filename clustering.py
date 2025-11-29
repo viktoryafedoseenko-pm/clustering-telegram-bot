@@ -30,6 +30,7 @@ import json
 from dotenv import load_dotenv
 from metrics import ClusteringMetrics
 from hierarchical_clustering import create_hierarchy, generate_master_category_names
+from config import EMBEDDING_MODEL
 
 
 load_dotenv()
@@ -568,8 +569,12 @@ def clusterize_texts(file_path: str, progress_callback=None):
     sync_log(f"✨ Уникальных: {n_unique}")
 
     # Модель
-    sync_log("🤖 Загрузка модели...")
-    model = SentenceTransformer("paraphrase-multilingual-MiniLM-L12-v2")
+    sync_log(f"🤖 Загрузка модели: {EMBEDDING_MODEL}...")
+    try:
+        model = SentenceTransformer(EMBEDDING_MODEL)
+    except Exception as e:
+        sync_log(f"⚠️ Ошибка загрузки {EMBEDDING_MODEL}, использую fallback")
+        model = SentenceTransformer("paraphrase-multilingual-MiniLM-L12-v2")
 
     # Объединяем все стоп-слова для vectorizer
     ALL_STOP_WORDS = STOP_WORDS.union(DOMAIN_STOP_WORDS).union(HTML_STOP_WORDS)
