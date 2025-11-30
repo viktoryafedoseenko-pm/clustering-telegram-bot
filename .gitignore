@@ -1,3 +1,4 @@
+# .gitihnore
 # Python
 venv/
 __pycache__/
@@ -34,3 +35,6 @@ Thumbs.db
 # Temporary
 tmp/
 temp/
+
+# Fonts (large files)
+fonts/*.zip
