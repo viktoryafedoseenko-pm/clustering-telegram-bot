@@ -461,12 +461,8 @@ async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         # Показываем кнопки выбора
         keyboard = InlineKeyboardMarkup([
-            [InlineKeyboardButton("📊 Детальный отчёт PDF", callback_data=f"pdf_{cache_key}")],
-            [InlineKeyboardButton("🔴 Что критично?", callback_data=f"insight_critical_{cache_key}")],
-            [InlineKeyboardButton("📋 Как приоритизировать?", callback_data=f"insight_priority_{cache_key}")],
-            [InlineKeyboardButton("💡 Что делать первым?", callback_data=f"insight_action_{cache_key}")],
-            [InlineKeyboardButton("📤 Поделиться с коллегой", callback_data=f"share_{cache_key}")],
-            [InlineKeyboardButton("❌ Только CSV", callback_data="csv_only")]
+            [InlineKeyboardButton("Детальный отчёт в PDF", callback_data=f"pdf_{cache_key}")],
+            [InlineKeyboardButton("Поделиться", callback_data=f"share_{cache_key}")]
         ])
 
         MAX_CAPTION_LENGTH = 1000  # С запасом (лимит 1024)
@@ -812,7 +808,7 @@ async def handle_share_request(update: Update, context: ContextTypes.DEFAULT_TYP
     message = (
         "📤 <b>Как поделиться результатом:</b>\n\n"
         
-        "<b>Вариант 1: Переслать файлы</b>\n"
+        "<b>Переслать файлы</b>\n"
         "Просто перешлите CSV или PDF файл коллеге в Telegram.\n"
         "Он сможет открыть и изучить результаты.\n\n"
         
@@ -826,10 +822,6 @@ async def handle_share_request(update: Update, context: ContextTypes.DEFAULT_TYP
         "Результат — кластеры по темам + PDF с инсайтами. "
         "Бесплатно до 50,000 текстов.</i>\n\n"
         
-        "🎁 <b>Bonus:</b>\n"
-        "Если 3+ человека воспользуются ботом по вашей рекомендации, "
-        "вы получите Pro-доступ на месяц бесплатно!\n"
-        "(Функция в разработке)"
     )
     
     await query.message.reply_text(message, parse_mode='HTML')
