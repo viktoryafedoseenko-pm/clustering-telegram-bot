@@ -510,6 +510,7 @@ async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # Показываем кнопки выбора
         keyboard = InlineKeyboardMarkup([
             [InlineKeyboardButton("Детальный отчёт в PDF", callback_data=f"pdf_{cache_key}")],
+            [InlineKeyboardButton("📈 Метрики качества", callback_data=f"quality_{cache_key}")],
             [InlineKeyboardButton("Поделиться", callback_data=f"share_{cache_key}")]
         ])
 
@@ -544,13 +545,13 @@ async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     reply_markup=keyboard
                 )
         
-        # Отправка статистики
-        if 'quality_metrics' in stats:
-            quality_report = ClusteringMetrics.format_report(stats['quality_metrics'])
-            await update.message.reply_text(
-                quality_report,
-                parse_mode='HTML'
-            )
+        # Отправка статистики качества (закоментировано, чтобы убрать под кнопку)
+        # if 'quality_metrics' in stats:
+        #     quality_report = ClusteringMetrics.format_report(stats['quality_metrics'])
+        #     await update.message.reply_text(
+        #         quality_report,
+        #         parse_mode='HTML'
+        #    )
 
     except ValueError as e:
         # Логирование: Ошибка валидации
@@ -879,6 +880,49 @@ async def handle_share_request(update: Update, context: ContextTypes.DEFAULT_TYP
     
     await query.message.reply_text(message, parse_mode='HTML')
 
+async def handle_quality_request(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Обработчик кнопки 'Метрики качества'"""
+    query = update.callback_query
+    await query.answer()
+    
+    user_id = update.effective_user.id
+    callback_data = query.data
+    
+    logger.info(f"📈 QUALITY METRICS REQUEST | User: {user_id}")
+    
+    # Извлекаем cache_key
+    cache_key = callback_data.replace("quality_", "")
+    
+    # Загружаем данные из кеша
+    cached_data = cache.load(cache_key)
+    if not cached_data:
+        await query.message.reply_text(
+            "⚠️ <b>Данные устарели</b>\n\n"
+            "Результаты хранятся 1 час.\n"
+            "Загрузите файл заново.",
+            parse_mode='HTML'
+        )
+        return
+    
+    stats = cached_data['stats']
+    
+    # Проверяем наличие метрик качества
+    if 'quality_metrics' not in stats:
+        await query.message.reply_text(
+            "⚠️ <b>Метрики недоступны</b>\n\n"
+            "Для этого анализа метрики качества не были рассчитаны.",
+            parse_mode='HTML'
+        )
+        return
+    
+    # Генерируем отчёт
+    quality_report = ClusteringMetrics.format_report(stats['quality_metrics'])
+    
+    await query.message.reply_text(
+        quality_report,
+        parse_mode='HTML'
+    )
+
 
 # Обработчик запроса детального PDF
 async def handle_pdf_request(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1062,6 +1106,7 @@ def main():
     application.add_handler(CallbackQueryHandler(handle_pdf_request, pattern="^pdf_"))
     application.add_handler(CallbackQueryHandler(handle_insight_request, pattern="^insight_"))
     application.add_handler(CallbackQueryHandler(handle_share_request, pattern="^share_"))
+    application.add_handler(CallbackQueryHandler(handle_quality_request, pattern="^quality_"))
     async def handle_csv_only(update: Update, context: ContextTypes.DEFAULT_TYPE):
         query = update.callback_query
         await query.answer()
