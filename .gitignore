@@ -38,3 +38,16 @@ temp/
 
 # Fonts (large files)
 fonts/*.zip
+
+# Experiments and tests
+experiments/
+test_*.py
+grid_search*.py
+run_experiments.py
+
+# Fonts archives
+fonts/*.zip
+
+# Temp documentation
+readme/
+
