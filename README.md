@@ -52,6 +52,8 @@ clustering-telegram-bot/
 └── README.md          # Документация
 ```
 
+Более подробное описание модулей и данных находится в `readme/project_structure.md`.
+
 ## Локальный запуск
 
 ### Требования
