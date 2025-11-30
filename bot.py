@@ -165,6 +165,72 @@ async def feedback_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(feedback_msg, parse_mode='HTML')
 
 
+async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Статистика для администратора"""
+    # Проверка прав доступа
+    if not ADMIN_TELEGRAM_ID or update.effective_user.id != int(ADMIN_TELEGRAM_ID):
+        await update.message.reply_text(
+            "❌ У вас нет доступа к этой команде.",
+            parse_mode='HTML'
+        )
+        return
+    
+    try:
+        # Проверка дискового пространства
+        disk_ok, free_gb = check_disk_space(min_free_gb=0.1)
+        
+        # Анализ логов
+        errors_count = 0
+        files_processed = 0
+        warnings_count = 0
+        
+        try:
+            log_file = LOG_DIR / "bot.log"
+            if log_file.exists():
+                with open(log_file, "r", encoding='utf-8') as f:
+                    lines = f.readlines()
+                    # Подсчитываем ошибки и успешные обработки
+                    errors_count = len([l for l in lines if "ERROR" in l or "CRITICAL ERROR" in l])
+                    files_processed = len([l for l in lines if "CLUSTERING COMPLETE" in l])
+                    warnings_count = len([l for l in lines if "WARNING" in l or "⚠️" in l])
+        except Exception as log_error:
+            logger.error(f"Error reading logs: {log_error}")
+        
+        # Статистика rate limiter
+        active_users = len(rate_limiter.requests) if hasattr(rate_limiter, 'requests') else 0
+        
+        # Статистика кэша
+        cache_items = 0
+        try:
+            cache_dir = Path("cache")
+            if cache_dir.exists():
+                cache_items = len(list(cache_dir.glob("*.pkl")))
+        except:
+            pass
+        
+        # Формируем сообщение
+        msg = (
+            f"📊 <b>Статистика бота</b>\n\n"
+            f"💾 <b>Диск:</b> {free_gb:.1f} ГБ свободно\n"
+            f"   Статус: {'✅ OK' if disk_ok else '⚠️ Мало места'}\n\n"
+            f"📈 <b>Обработано файлов:</b> {files_processed}\n"
+            f"❌ <b>Ошибок:</b> {errors_count}\n"
+            f"⚠️ <b>Предупреждений:</b> {warnings_count}\n\n"
+            f"👥 <b>Активных пользователей:</b> {active_users}\n"
+            f"💾 <b>Элементов в кэше:</b> {cache_items}\n\n"
+            f"⏰ <b>Время:</b> {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+        )
+        
+        await update.message.reply_text(msg, parse_mode='HTML')
+        
+    except Exception as e:
+        logger.error(f"Error in stats_command: {e}", exc_info=True)
+        await update.message.reply_text(
+            f"❌ Ошибка при получении статистики: {str(e)}",
+            parse_mode='HTML'
+        )
+
+
 async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
     progress_msg = None
     file_path = None
@@ -290,7 +356,7 @@ async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
             if examples:
                 file_info += f"📝 <b>Примеры текстов:</b>\n{examples}\n\n"
             
-            file_info += "🔄 <b>Начинаю анализ. Файл в 5000 строк обрабатывается до 5 минут. На файл в 30000 строк может уйти до 20 минут. Можете закрыть чат – я пришлю сообщение, когда всё будет готово.</b>"
+            file_info += "🔄 <b>Начинаю анализ. Черёз несколько минут всё будет готово.</b>"
             
             await progress_msg.edit_text(file_info, parse_mode='HTML')
             
@@ -429,6 +495,25 @@ async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"❌ CRITICAL ERROR | User: {user_id} | File: {file_name} | Error: {str(e)}",
             exc_info=True  # Добавляет полный traceback
         )
+        
+        # Уведомляем админа о критичной ошибке
+        if ADMIN_TELEGRAM_ID:
+            try:
+                user_display = get_user_display_name(update.effective_user)
+                await context.bot.send_message(
+                    chat_id=int(ADMIN_TELEGRAM_ID),
+                    text=(
+                        f"🚨 <b>Критичная ошибка</b>\n\n"
+                        f"👤 <b>Пользователь:</b> {user_display} (ID: {user_id})\n"
+                        f"📄 <b>Файл:</b> {html.escape(file_name) if file_name else 'N/A'}\n"
+                        f"❌ <b>Ошибка:</b> {html.escape(str(e)[:300])}\n\n"
+                        f"⏰ <b>Время:</b> {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+                    ),
+                    parse_mode='HTML'
+                )
+            except Exception as admin_error:
+                logger.error(f"Failed to notify admin: {admin_error}")
+        
         error_msg = (
             "❌ <b>Произошла ошибка</b>\n\n"
             "Не удалось обработать файл.\n\n"
@@ -672,6 +757,7 @@ def main():
     application.add_handler(CommandHandler("help", help_command))
     application.add_handler(CommandHandler("about", about_command))
     application.add_handler(CommandHandler("feedback", feedback_command))
+    application.add_handler(CommandHandler("stats", stats_command))
     application.add_handler(MessageHandler(filters.Document.ALL, handle_file))
 
     from telegram.ext import CallbackQueryHandler
