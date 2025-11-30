@@ -32,7 +32,9 @@ from metrics import ClusteringMetrics
 from hierarchical_clustering import create_hierarchy, generate_master_category_names
 from config import EMBEDDING_MODEL
 from cluster_params import get_clustering_params, estimate_n_clusters  # type: ignore
+import logging
 
+logger = logging.getLogger(__name__)
 
 load_dotenv()
 
@@ -514,6 +516,8 @@ def clusterize_texts(file_path: str, progress_callback=None):
     import time
     start_time = time.time()
 
+    logger.info(f"🔄 Starting clustering | File: {file_path}")
+
     async def log_progress(msg):
         print(msg)
         if progress_callback:
@@ -541,6 +545,7 @@ def clusterize_texts(file_path: str, progress_callback=None):
         raise ValueError("Файл пустой")
 
     sync_log(f"📊 Загружено {n} текстов")
+    logger.info(f"📊 Loaded {n} texts from CSV")
 
     # Предобработка
     sync_log("🧹 Предобработка...")
@@ -910,7 +915,7 @@ def clusterize_texts(file_path: str, progress_callback=None):
     # Добавляем метрики качества в stats
     stats['quality_metrics'] = quality_metrics
     sync_log(f"✅ {stats['n_clusters']} кластеров за {time.time()-start_time:.1f}с")
-    
+
     if 'hierarchy' in stats:
         sync_log("\n📊 Мастер-категории:")
         
@@ -927,5 +932,15 @@ def clusterize_texts(file_path: str, progress_callback=None):
     # Сохранение
     out = file_path.replace(".csv", "_clustered.csv")
     df.to_csv(out, index=False, encoding='utf-8')
+
+    sync_log(f"✅ {stats['n_clusters']} кластеров за {time.time()-start_time:.1f}с")
+    
+    # Логирование
+    logger.info(
+        f"✅ Clustering complete | "
+        f"Time: {time.time()-start_time:.1f}s | "
+        f"Clusters: {stats['n_clusters']} | "
+        f"Texts: {n_unique}"
+    )
     
     return out, stats, hierarchy, master_names

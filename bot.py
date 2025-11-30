@@ -1,8 +1,9 @@
 # bot.py
 import logging
+from logging.handlers import RotatingFileHandler
+from pathlib import Path
 import os
 import asyncio
-from pathlib import Path
 from dotenv import load_dotenv
 import html
 import pandas as pd
@@ -16,12 +17,41 @@ from cache_manager import cache
 from analytics import generate_detailed_report
 from config import TEMP_DIR
 
-logging.basicConfig(
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    level=logging.INFO
+# Настройки логирования
+# Создаём директорию для логов
+LOG_DIR = Path("/home/yc-user/logs")
+LOG_DIR.mkdir(exist_ok=True)
+
+# Форматирование логов
+formatter = logging.Formatter(
+    '%(asctime)s - %(name)s - %(levelname)s - [%(filename)s:%(lineno)d] - %(message)s',
+    datefmt='%Y-%m-%d %H:%M:%S'
 )
+
+# Хендлер для файла (с автоматической ротацией)
+file_handler = RotatingFileHandler(
+    LOG_DIR / "bot.log",
+    maxBytes=10*1024*1024,  # 10 МБ на файл
+    backupCount=5,           # Храним 5 файлов (итого 50 МБ)
+    encoding='utf-8'
+)
+file_handler.setFormatter(formatter)
+file_handler.setLevel(logging.INFO)
+
+# Хендлер для консоли (чтобы systemd тоже видел)
+console_handler = logging.StreamHandler()
+console_handler.setFormatter(formatter)
+console_handler.setLevel(logging.INFO)
+
+# Настройка корневого логгера
+root_logger = logging.getLogger()
+root_logger.setLevel(logging.INFO)
+root_logger.addHandler(file_handler)
+root_logger.addHandler(console_handler)
+
 logger = logging.getLogger(__name__)
 
+# Загрузка токена
 load_dotenv()
 TOKEN = os.getenv('TELEGRAM_BOT_TOKEN')
 
@@ -132,11 +162,21 @@ async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
     cache_key = None
     
     try:
+        # Логирование: Начало обработки
+        user_id = update.effective_user.id
+        username = update.effective_user.username or "unknown"
+        file_name = update.message.document.file_name
+        
+        logger.info(f"📥 NEW FILE | User: {user_id} (@{username}) | File: {file_name}")
+
         # Проверка размера файла
         MAX_FILE_SIZE_MB = 20
         file_size_mb = update.message.document.file_size / (1024 * 1024)
+
+        logger.info(f"📊 FILE INFO | User: {user_id} | Size: {file_size_mb:.2f} MB")
         
         if file_size_mb > MAX_FILE_SIZE_MB:
+            logger.warning(f"⚠️ FILE TOO LARGE | User: {user_id} | Size: {file_size_mb:.2f} MB > {MAX_FILE_SIZE_MB} MB")
             await update.message.reply_text(
                 f"❌ <b>Файл слишком большой</b>\n\n"
                 f"Размер: {file_size_mb:.1f} МБ\n"
@@ -172,10 +212,13 @@ async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
             df = pd.read_csv(file_path, encoding='utf-8', dtype=str)
             n_rows = len(df)
             n_cols = len(df.columns)
+
+            logger.info(f"📋 DATASET LOADED | User: {user_id} | Rows: {n_rows} | Cols: {n_cols}")
             
             # Проверка количества строк
             MAX_ROWS = 50000
             if n_rows > MAX_ROWS:
+                logger.warning(f"⚠️ TOO MANY ROWS | User: {user_id} | Rows: {n_rows} > {MAX_ROWS}")
                 await progress_msg.edit_text(
                     f"❌ <b>Слишком много строк</b>\n\n"
                     f"Найдено: {n_rows} строк\n"
@@ -235,6 +278,15 @@ async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 pass
         
         result_path, stats, hierarchy, master_names = clusterize_texts(file_path, progress_callback)
+        
+        # Логирование: Результаты кластеризации
+        logger.info(
+            f"✅ CLUSTERING COMPLETE | User: {user_id} | "
+            f"Texts: {stats['total_texts']} | "
+            f"Clusters: {stats['n_clusters']} | "
+            f"Noise: {stats['noise_percent']:.1f}% | "
+            f"Silhouette: {stats.get('quality_metrics', {}).get('silhouette_score', 0):.3f}"
+        )
         
         # Шаг 4: Формирование статистики
         stats_message = format_statistics(stats)
@@ -325,6 +377,8 @@ async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await progress_msg.delete()
 
     except ValueError as e:
+        # 🆕 ЛОГИРОВАНИЕ: Ошибка валидации
+        logger.warning(f"⚠️ VALIDATION ERROR | User: {user_id} | Error: {str(e)[:200]}")
         error_msg = f"⚠️ <b>Проблема с данными</b>\n\n{html.escape(str(e))}\n\n💡 Проверьте формат файла"
         if progress_msg:
             await progress_msg.edit_text(error_msg, parse_mode='HTML')
@@ -333,6 +387,11 @@ async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.warning(f"ValueError: {e}")
         
     except Exception as e:
+        # Логирование: Критическая ошибка
+        logger.error(
+            f"❌ CRITICAL ERROR | User: {user_id} | File: {file_name} | Error: {str(e)}",
+            exc_info=True  # Добавляет полный traceback
+        )
         error_msg = (
             "❌ <b>Произошла ошибка</b>\n\n"
             "Не удалось обработать файл.\n\n"
@@ -356,10 +415,13 @@ async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
         try:
             if file_path and os.path.exists(file_path):
                 os.remove(file_path)
+                logger.debug(f"🗑️ Deleted temp file: {file_path}")
             if result_path and os.path.exists(result_path) and cache_key:
                 os.remove(result_path)
-        except:
-            pass
+                logger.debug(f"🗑️ Deleted result file: {result_path}")
+        except Exception as e:
+            logger.warning(f"⚠️ CLEANUP FAILED | Files: {file_path}, {result_path} | Error: {e}")
+
 
 def format_statistics(stats):
     """Форматирование статистики в красивое сообщение (с экранированием HTML)"""
@@ -396,11 +458,17 @@ def format_statistics(stats):
     
     return msg
 
-# 🆕 НОВЫЙ HANDLER ДЛЯ CALLBACK
+# Обработчик запроса детального PDF
 async def handle_pdf_request(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Обработчик запроса детального PDF отчёта"""
     query = update.callback_query
     await query.answer()
+
+    # Логирование
+    user_id = update.effective_user.id
+    callback_data = query.data
+    
+    logger.info(f"📊 PDF REQUEST | User: {user_id} | Action: {callback_data}")
     
     callback_data = query.data
     
@@ -414,10 +482,12 @@ async def handle_pdf_request(update: Update, context: ContextTypes.DEFAULT_TYPE)
     
     # Извлекаем cache_key
     if not callback_data.startswith("pdf_"):
+        logger.warning(f"⚠️ INVALID CALLBACK | User: {user_id} | Data: {callback_data}")
         await query.message.reply_text("❌ Ошибка: неверный формат данных")
         return
     
     cache_key = callback_data[4:]  # Убираем "pdf_"
+    logger.info(f"🔄 GENERATING PDF | User: {user_id} | Cache key: {cache_key[:8]}...")
     
     # Показываем прогресс
     progress_msg = await query.message.reply_text(
@@ -437,6 +507,7 @@ async def handle_pdf_request(update: Update, context: ContextTypes.DEFAULT_TYPE)
         )
         
         if not result:
+            logger.warning(f"⚠️ PDF GENERATION FAILED | User: {user_id} | Cache key: {cache_key[:8]}")
             await progress_msg.edit_text(
                 "❌ <b>Ошибка генерации отчёта</b>\n\n"
                 "Возможные причины:\n"
@@ -448,8 +519,10 @@ async def handle_pdf_request(update: Update, context: ContextTypes.DEFAULT_TYPE)
             return
         
         pdf_path, csv_path = result
+        logger.info(f"✅ PDF GENERATED | User: {user_id} | Files: {pdf_path}, {csv_path}")
         
         # Отправляем файлы
+        logger.info(f"📤 PDF SENT | User: {user_id}")
         await progress_msg.edit_text(
             "✅ <b>Отчёт готов!</b>\n\n"
             "📤 Отправляю файлы...",
@@ -502,6 +575,7 @@ async def handle_pdf_request(update: Update, context: ContextTypes.DEFAULT_TYPE)
             pass
         
     except asyncio.TimeoutError:
+        logger.error(f"⏱ PDF TIMEOUT | User: {user_id} | Cache key: {cache_key[:8]}")
         await progress_msg.edit_text(
             "⏱ <b>Превышено время ожидания</b>\n\n"
             "Генерация отчёта заняла слишком много времени.\n"
@@ -510,7 +584,7 @@ async def handle_pdf_request(update: Update, context: ContextTypes.DEFAULT_TYPE)
         )
     
     except Exception as e:
-        logger.error(f"PDF generation error: {e}", exc_info=True)
+        logger.error(f"❌ PDF ERROR | User: {user_id} | Error: {str(e)}", exc_info=True)
         await progress_msg.edit_text(
             "❌ <b>Ошибка генерации отчёта</b>\n\n"
             "Попробуйте повторить запрос через минуту",
@@ -520,10 +594,31 @@ async def handle_pdf_request(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
 async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE):
     """Глобальный обработчик ошибок"""
-    logger.error("Exception while handling an update:", exc_info=context.error)
+    # 🆕 ДЕТАЛЬНОЕ ЛОГИРОВАНИЕ
+    logger.error("=" * 60)
+    logger.error("🚨 UNHANDLED EXCEPTION")
+    
+    if update and isinstance(update, Update):
+        user_id = update.effective_user.id if update.effective_user else "unknown"
+        logger.error(f"User: {user_id}")
+        
+        if update.message:
+            logger.error(f"Message: {update.message.text[:100] if update.message.text else 'N/A'}")
+    
+    logger.error(f"Error: {context.error}")
+    logger.error("Traceback:", exc_info=context.error)
+    logger.error("=" * 60)
 
 
 def main():
+    # Логирование: Старт бота
+    logger.info("=" * 60)
+    logger.info("🤖 BOT STARTING...")
+    logger.info(f"📁 Log directory: {LOG_DIR}")
+    logger.info(f"📁 Temp directory: {TEMP_DIR}")
+    logger.info(f"🔑 Token configured: {'✅' if TOKEN else '❌'}")
+    logger.info("=" * 60)
+    
     application = Application.builder().token(TOKEN).build()
     
     application.add_handler(CommandHandler("start", start))
@@ -537,9 +632,13 @@ def main():
 
     application.add_error_handler(error_handler)
     
-    logger.info("🤖 Бот запущен и готов к работе!")
+    logger.info("✅ All handlers registered")
+    logger.info("🚀 Bot is running and ready to accept requests!")
+    logger.info("=" * 60)
+    
     application.run_polling(allowed_updates=Update.ALL_TYPES)
 
 
 if __name__ == '__main__':
     main()
+
