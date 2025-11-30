@@ -1,5 +1,6 @@
 # pdf_generator.py
 import io
+import re
 from pathlib import Path
 import pandas as pd
 import matplotlib
@@ -30,6 +31,32 @@ pdfmetrics.registerFont(TTFont('DejaVuSans', str(FONT_PATH)))
 # Настройка matplotlib для кириллицы
 matplotlib.rcParams['font.family'] = 'DejaVu Sans'
 matplotlib.rcParams['axes.unicode_minus'] = False
+
+def remove_emoji(text):
+    """Удаляет эмодзи и специальные символы из текста"""
+    if not isinstance(text, str):
+        text = str(text)
+    # Удаляем эмодзи (Unicode диапазоны эмодзи)
+    emoji_pattern = re.compile(
+        "["
+        "\U0001F600-\U0001F64F"  # emoticons
+        "\U0001F300-\U0001F5FF"  # symbols & pictographs
+        "\U0001F680-\U0001F6FF"  # transport & map symbols
+        "\U0001F1E0-\U0001F1FF"  # flags (iOS)
+        "\U00002702-\U000027B0"  # dingbats
+        "\U000024C2-\U0001F251"  # enclosed characters
+        "\U0001F900-\U0001F9FF"  # supplemental symbols
+        "\U0001FA00-\U0001FA6F"  # chess symbols
+        "\U0001FA70-\U0001FAFF"  # symbols and pictographs extended-A
+        "]+",
+        flags=re.UNICODE
+    )
+    text = emoji_pattern.sub('', text)
+    # Удаляем другие специальные символы, которые могут быть проблемными
+    text = text.replace('•', '').replace('■', '').replace('→', '').replace('←', '')
+    # Убираем лишние пробелы
+    text = ' '.join(text.split())
+    return text.strip()
 
 def footer(canvas, doc):
     canvas.saveState()
@@ -327,6 +354,8 @@ class PDFReportGenerator:
         master_stats = []
         for master_id, sub_clusters in self.master_hierarchy.items():
             master_name = self.master_names.get(master_id, f"Категория {master_id}")
+            # Удаляем эмодзи из названия мастер-категории
+            master_name = remove_emoji(master_name)
             total_count = sum(len(self.df[self.df['cluster_id'] == cid]) for cid in sub_clusters)
             percent = (total_count / len(self.df)) * 100
             n_clusters = len(sub_clusters)
@@ -390,9 +419,9 @@ class PDFReportGenerator:
             master_id = master['master_id']
             master_name = master['name']
             
-            # Заголовок категории
+            # Заголовок категории (без эмодзи)
             elements.append(self._create_paragraph(
-                f"📁 {master_name}",
+                master_name,
                 'CustomBody'
             ))
             elements.append(Spacer(1, self.SPACER_SMALL))
@@ -406,8 +435,8 @@ class PDFReportGenerator:
                 cluster_name = self.cluster_names.get(cluster_id, f"Кластер {cluster_id}")
                 percent = (cluster_count / len(self.df)) * 100
                 
-                # Очищаем название
-                clean_name = cluster_name.replace('•', '').replace('■', '').strip()
+                # Очищаем название от эмодзи и специальных символов
+                clean_name = remove_emoji(cluster_name)
                 if len(clean_name) > 60:
                     clean_name = clean_name[:60] + "..."
                 
@@ -463,7 +492,7 @@ class PDFReportGenerator:
         total_texts = len(self.df)
         
         elements.append(self._create_paragraph(
-            f"📊 Итог: {len(self.master_hierarchy)} мастер-категорий, "
+            f"Итог: {len(self.master_hierarchy)} мастер-категорий, "
             f"{total_clusters} кластеров, {total_texts} текстов",
             'CustomSmall'
         ))
@@ -511,7 +540,7 @@ class PDFReportGenerator:
         cluster_dist = self.df['cluster_id'].value_counts().head(10)
         
         labels = [
-            self.cluster_names.get(cid, f"Кластер {cid}")[:25]
+            remove_emoji(self.cluster_names.get(cid, f"Кластер {cid}"))[:25]
             for cid in cluster_dist.index
         ]
         sizes = cluster_dist.values
@@ -554,7 +583,7 @@ class PDFReportGenerator:
         cluster_dist = self.df['cluster_id'].value_counts().head(10)
         
         labels = [
-            self.cluster_names.get(cid, f"Кластер {cid}")[:30]
+            remove_emoji(self.cluster_names.get(cid, f"Кластер {cid}"))[:30]
             for cid in cluster_dist.index
         ]
         
@@ -599,6 +628,8 @@ class PDFReportGenerator:
                 elements.append(PageBreak())
             
             cluster_name = self.cluster_names.get(cluster_id, f"Кластер {cluster_id}")
+            # Удаляем эмодзи из названия кластера
+            cluster_name = remove_emoji(cluster_name)
             percent = (count / len(self.df)) * 100
             
             # Определяем мастер-категорию (если есть)
@@ -606,7 +637,7 @@ class PDFReportGenerator:
             if self.master_hierarchy:
                 for master_id, sub_clusters in self.master_hierarchy.items():
                     if cluster_id in sub_clusters:
-                        master_category = self.master_names.get(master_id, f"Категория {master_id}")
+                        master_category = remove_emoji(self.master_names.get(master_id, f"Категория {master_id}"))
                         break
             
             # Заголовок кластера

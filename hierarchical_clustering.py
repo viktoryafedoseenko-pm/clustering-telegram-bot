@@ -197,7 +197,7 @@ def generate_master_category_names(hierarchy, cluster_names, topics, df):
                                 len(name) < 50 and 
                                 not any(bad in name.lower() for bad in ['column', 'row', 'robot', 'pad', 'forms'])):
                                 
-                                master_names[master_id] = f"📁 {name}"
+                                master_names[master_id] = name
                                 print(f"   ✅ {master_names[master_id]} (от LLM)")
                                 llm_success = True
                             else:

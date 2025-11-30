@@ -737,7 +737,7 @@ def clusterize_texts(file_path: str, progress_callback=None):
     unique_clusters = set(topics)  # Используем обновлённые topics!
     for cluster_id in unique_clusters:
         if cluster_id == -1:
-            cluster_names[cluster_id] = "🔹 Прочее"
+            cluster_names[cluster_id] = "Прочее"
             continue
         
         topic_words = topic_model.get_topic(cluster_id)
