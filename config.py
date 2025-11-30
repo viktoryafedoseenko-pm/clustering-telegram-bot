@@ -32,3 +32,6 @@ EMBEDDING_MODEL = os.getenv(
     "EMBEDDING_MODEL", 
     DEFAULT_EMBEDDING_MODEL
 )
+
+# === Admin ===
+ADMIN_TELEGRAM_ID = os.getenv("ADMIN_TELEGRAM_ID")

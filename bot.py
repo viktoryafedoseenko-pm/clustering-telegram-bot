@@ -16,6 +16,16 @@ from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 from cache_manager import cache
 from analytics import generate_detailed_report
 from config import TEMP_DIR
+from rate_limiter import rate_limiter
+from utils import (
+    cleanup_old_temp_files,
+    cleanup_file_safe,
+    check_disk_space,
+    format_time_remaining,
+    get_user_display_name
+)
+from config import ADMIN_TELEGRAM_ID
+import datetime
 
 # Настройки логирования
 # Создаём директорию для логов
@@ -168,6 +178,33 @@ async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
         file_name = update.message.document.file_name
         
         logger.info(f"📥 NEW FILE | User: {user_id} (@{username}) | File: {file_name}")
+
+        # Rate Limiting проверка
+        allowed, remaining, wait_time = rate_limiter.is_allowed(user_id)
+        
+        if not allowed:
+            await update.message.reply_text(
+                f"⏱ <b>Превышен лимит запросов</b>\n\n"
+                f"Вы можете обработать максимум 5 файлов в час.\n"
+                f"Попробуйте снова через <b>{format_time_remaining(wait_time)}</b>.\n\n"
+                f"💡 Это сделано для стабильности сервиса",
+                parse_mode='HTML'
+            )
+            return
+        
+        logger.info(f"✅ Rate limit OK | User: {user_id} | Remaining: {remaining}")
+        
+        # Проверка дискового пространства
+        disk_ok, free_gb = check_disk_space(min_free_gb=1.0)
+        
+        if not disk_ok:
+            await update.message.reply_text(
+                "⚠️ <b>Сервер временно перегружен</b>\n\n"
+                "Попробуйте через несколько минут.",
+                parse_mode='HTML'
+            )
+            logger.error(f"🚨 LOW DISK SPACE | Free: {free_gb:.2f} GB")
+            return
 
         # Проверка размера файла
         MAX_FILE_SIZE_MB = 20
@@ -412,15 +449,9 @@ async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
     finally:
         # Очистка временных файлов
-        try:
-            if file_path and os.path.exists(file_path):
-                os.remove(file_path)
-                logger.debug(f"🗑️ Deleted temp file: {file_path}")
-            if result_path and os.path.exists(result_path) and cache_key:
-                os.remove(result_path)
-                logger.debug(f"🗑️ Deleted result file: {result_path}")
-        except Exception as e:
-            logger.warning(f"⚠️ CLEANUP FAILED | Files: {file_path}, {result_path} | Error: {e}")
+        cleanup_file_safe(file_path)
+        if result_path and cache_key:
+            cleanup_file_safe(result_path)
 
 
 def format_statistics(stats):
@@ -611,15 +642,20 @@ async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE):
 
 
 def main():
-    # Логирование: Старт бота
     logger.info("=" * 60)
     logger.info("🤖 BOT STARTING...")
     logger.info(f"📁 Log directory: {LOG_DIR}")
     logger.info(f"📁 Temp directory: {TEMP_DIR}")
     logger.info(f"🔑 Token configured: {'✅' if TOKEN else '❌'}")
+    
+    # Очистка старых файлов при старте
+    logger.info("🗑️ Cleaning up old temp files...")
+    cleanup_old_temp_files()
+    
     logger.info("=" * 60)
     
     application = Application.builder().token(TOKEN).build()
+
     
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("help", help_command))
@@ -632,6 +668,24 @@ def main():
 
     application.add_error_handler(error_handler)
     
+    # Периодические задачи
+    job_queue = application.job_queue
+    
+    # Очистка временных файлов каждые 6 часов
+    job_queue.run_repeating(
+        callback=lambda ctx: cleanup_old_temp_files(),
+        interval=datetime.timedelta(hours=6),
+        first=datetime.timedelta(seconds=10)
+    )
+    
+    # Очистка неактивных пользователей из rate limiter раз в сутки
+    job_queue.run_repeating(
+        callback=lambda ctx: rate_limiter.cleanup_old_users(),
+        interval=datetime.timedelta(hours=24),
+        first=datetime.timedelta(hours=1)
+    )
+    
+    logger.info("✅ Periodic tasks scheduled")
     logger.info("✅ All handlers registered")
     logger.info("🚀 Bot is running and ready to accept requests!")
     logger.info("=" * 60)
