@@ -654,9 +654,20 @@ def main():
     
     logger.info("=" * 60)
     
-    application = Application.builder().token(TOKEN).build()
+    # Создаём application с job_queue
+    from telegram.ext import JobQueue
 
-    
+    application = (
+        Application.builder()
+        .token(TOKEN)
+        .build()
+    )
+
+    # Инициализируем job_queue если его нет
+    if application.job_queue is None:
+        logger.warning("⚠️ JobQueue not available, periodic tasks disabled")
+
+
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("help", help_command))
     application.add_handler(CommandHandler("about", about_command))
@@ -669,23 +680,27 @@ def main():
     application.add_error_handler(error_handler)
     
     # Периодические задачи
-    job_queue = application.job_queue
-    
-    # Очистка временных файлов каждые 6 часов
-    job_queue.run_repeating(
-        callback=lambda ctx: cleanup_old_temp_files(),
-        interval=datetime.timedelta(hours=6),
-        first=datetime.timedelta(seconds=10)
-    )
-    
-    # Очистка неактивных пользователей из rate limiter раз в сутки
-    job_queue.run_repeating(
-        callback=lambda ctx: rate_limiter.cleanup_old_users(),
-        interval=datetime.timedelta(hours=24),
-        first=datetime.timedelta(hours=1)
-    )
-    
-    logger.info("✅ Periodic tasks scheduled")
+    if application.job_queue:
+        job_queue = application.job_queue
+        
+        # Очистка временных файлов каждые 6 часов
+        job_queue.run_repeating(
+            callback=lambda ctx: cleanup_old_temp_files(),
+            interval=datetime.timedelta(hours=6),
+            first=datetime.timedelta(seconds=10)
+        )
+        
+        # Очистка неактивных пользователей из rate limiter раз в сутки
+        job_queue.run_repeating(
+            callback=lambda ctx: rate_limiter.cleanup_old_users(),
+            interval=datetime.timedelta(hours=24),
+            first=datetime.timedelta(hours=1)
+        )
+        
+        logger.info("✅ Periodic tasks scheduled")
+    else:
+        logger.warning("⚠️ JobQueue not available - periodic cleanup disabled")
+
     logger.info("✅ All handlers registered")
     logger.info("🚀 Bot is running and ready to accept requests!")
     logger.info("=" * 60)
