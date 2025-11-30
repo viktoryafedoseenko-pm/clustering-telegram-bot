@@ -501,7 +501,11 @@ async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await tracker.complete("✅ Анализ завершён!")
         
         # Удаляем прогресс-сообщение перед отправкой результата
-        await progress_msg.delete()
+        try:
+            await progress_msg.delete()
+            progress_msg = None  # Помечаем, что сообщение удалено
+        except Exception as e:
+            logger.warning(f"Failed to delete progress message: {e}")
         
         # Показываем кнопки выбора
         keyboard = InlineKeyboardMarkup([
@@ -548,18 +552,20 @@ async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 parse_mode='HTML'
             )
 
-        # Удаление прогресс-сообщения
-        await progress_msg.delete()
-
     except ValueError as e:
-        # 🆕 ЛОГИРОВАНИЕ: Ошибка валидации
+        # Логирование: Ошибка валидации
         logger.warning(f"⚠️ VALIDATION ERROR | User: {user_id} | Error: {str(e)[:200]}")
         error_msg = f"⚠️ <b>Проблема с данными</b>\n\n{html.escape(str(e))}\n\n💡 Проверьте формат файла"
+        
         if progress_msg:
-            await progress_msg.edit_text(error_msg, parse_mode='HTML')
+            try:
+                await progress_msg.edit_text(error_msg, parse_mode='HTML')
+            except Exception as edit_error:
+                logger.warning(f"Failed to edit progress message: {edit_error}")
+                # Если не удалось отредактировать — отправляем новое сообщение
+                await update.message.reply_text(error_msg, parse_mode='HTML')
         else:
             await update.message.reply_text(error_msg, parse_mode='HTML')
-        logger.warning(f"ValueError: {e}")
         
     except Exception as e:
         # Логирование: Критическая ошибка
@@ -599,10 +605,13 @@ async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "• Убедиться, что есть текстовые данные"
         )
         if progress_msg:
-            await progress_msg.edit_text(error_msg, parse_mode='HTML')
+            try:
+                await progress_msg.edit_text(error_msg, parse_mode='HTML')
+            except Exception as edit_error:
+                logger.warning(f"Failed to edit progress message: {edit_error}")
+                await update.message.reply_text(error_msg, parse_mode='HTML')
         else:
             await update.message.reply_text(error_msg, parse_mode='HTML')
-        logger.error(f"Error processing file: {e}", exc_info=True)
         
     finally:
         # Очистка временных файлов
