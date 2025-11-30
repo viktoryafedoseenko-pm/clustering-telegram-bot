@@ -329,7 +329,7 @@ async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
             stage="📊 Анализ структуры файла",
             percent=10
         )
-        
+
         try:
             df = pd.read_csv(file_path, encoding='utf-8', dtype=str)
             n_rows = len(df)
@@ -341,32 +341,76 @@ async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
             MAX_ROWS = 50000
             if n_rows > MAX_ROWS:
                 logger.warning(f"⚠️ TOO MANY ROWS | User: {user_id} | Rows: {n_rows} > {MAX_ROWS}")
-                await tracker.update(
-                    f"❌ Слишком много строк ({n_rows} > {MAX_ROWS})",
-                    0,
-                    "Пожалуйста, разделите файл на части",
-                    force=True
+                await progress_msg.edit_text(
+                    f"❌ <b>Слишком много строк</b>\n\n"
+                    f"Найдено: {n_rows} строк\n"
+                    f"Максимум: {MAX_ROWS} строк\n\n"
+                    f"💡 Пожалуйста, разделите файл на части",
+                    parse_mode='HTML'
                 )
                 return
             
             if n_rows == 0:
-                await tracker.update(
-                    "❌ Файл пустой",
-                    0,
+                await progress_msg.edit_text(
+                    "❌ <b>Файл пустой</b>\n\n"
                     "В файле нет данных для анализа",
-                    force=True
+                    parse_mode='HTML'
                 )
                 return
             
+            # Показываем информацию о файле (с экранированием HTML)
+            first_texts = df.iloc[:3, 0].fillna("").astype(str).tolist()
+            examples = "\n".join([f"  • {html.escape(t[:50])}{'...' if len(t) > 50 else ''}" 
+                                for t in first_texts if t.strip()])
+            
+            file_info = (
+                f"✅ <b>Файл загружен!</b>\n\n"
+                f"📄 <b>Информация о файле:</b>\n"
+                f"• Название: {html.escape(update.message.document.file_name)}\n"
+                f"• Размер: {file_size_mb:.2f} МБ\n"
+                f"• Строк: <b>{n_rows}</b>\n"
+                f"• Колонок: {n_cols}\n\n"
+            )
+            
+            if examples:
+                file_info += f"📝 <b>Примеры текстов:</b>\n{examples}\n\n"
+            
+            # Оценка времени обработки
+            if n_rows < 1000:
+                time_estimate = "1-2 минуты"
+            elif n_rows < 5000:
+                time_estimate = "2-5 минут"
+            elif n_rows < 20000:
+                time_estimate = "5-15 минут"
+            else:
+                time_estimate = "15-20 минут"
+            
+            file_info += (
+                f"⏱ <b>Примерное время обработки:</b> {time_estimate}\n\n"
+                f"🔄 <b>Начинаю анализ...</b>\n"
+                f"Можете закрыть чат — я пришлю сообщение, когда всё будет готово."
+            )
+            
+            # Обновляем прогресс-сообщение с информацией о файле
+            await progress_msg.edit_text(file_info, parse_mode='HTML')
+            
+            # Даём пользователю время прочитать (2 секунды)
+            await asyncio.sleep(2)
+            # === КОНЕЦ ВОЗВРАЩЁННОГО БЛОКА ===
+            
         except Exception as e:
-            await tracker.update(
-                "❌ Ошибка чтения файла",
-                0,
-                "Проверьте кодировку UTF-8 и формат CSV",
-                force=True
+            await progress_msg.edit_text(
+                f"❌ <b>Ошибка чтения файла</b>\n\n"
+                f"Не удалось прочитать CSV файл.\n\n"
+                f"💡 Проверьте:\n"
+                f"• Кодировка UTF-8\n"
+                f"• Корректный CSV формат\n"
+                f"• Файл не поврежден",
+                parse_mode='HTML'
             )
             logger.error(f"CSV read error: {e}")
             return
+
         
         # Шаг 3: Предобработка
         await tracker.update(
