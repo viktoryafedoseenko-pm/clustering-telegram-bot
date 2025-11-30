@@ -204,7 +204,7 @@ class PDFReportGenerator:
             color=self.COLOR_DIVIDER,
             spaceBefore=12,
             spaceAfter=12
-        )
+        ))
     
     def generate(self, output_path: str) -> bool:
         """Генерирует PDF отчёт"""
