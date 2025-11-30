@@ -62,9 +62,15 @@ def footer(canvas, doc):
     canvas.saveState()
     canvas.setFont('DejaVuSans', 8)
     canvas.setFillColor(colors.HexColor('#666666'))
+    # Левый футер - номер страницы
     canvas.drawString(
         inch, 0.5 * inch,
         f"Страница {doc.page} | Отчёт по кластеризации"
+    )
+    # Правый футер - ссылка на бота
+    canvas.drawRightString(
+        A4[0] - inch, 0.5 * inch,
+        "Создано: @cluster_master_bot"
     )
     canvas.restoreState()
 
@@ -229,6 +235,11 @@ class PDFReportGenerator:
             # 4. Топ-10 кластеров
             logger.info("🏷️ Creating cluster pages...")
             story.extend(self._create_clusters_pages())
+            story.append(PageBreak())
+            
+            # 5. CTA страница
+            logger.info("🚀 Creating CTA page...")
+            story.extend(self._create_cta_page())
             
             # Сборка PDF
             logger.info("🔨 Building PDF...")
@@ -679,5 +690,87 @@ class PDFReportGenerator:
                 elements.append(Spacer(1, self.SPACER_SMALL))
             
             elements.append(Spacer(1, self.SPACER_MEDIUM))
+        
+        return elements
+    
+    def _create_cta_page(self):
+        """Финальная страница с призывом к действию"""
+        elements = []
+        
+        # Заголовок
+        elements.append(self._create_paragraph(
+            "🚀 Попробуйте сами!",
+            'CustomTitle'
+        ))
+        elements.append(Spacer(1, self.SPACER_SMALL))
+        
+        # Подзаголовок
+        elements.append(self._create_paragraph(
+            "Этот отчёт создан автоматически за несколько минут с помощью @cluster_master_bot",
+            'CustomBody'
+        ))
+        elements.append(Spacer(1, self.SPACER_LARGE))
+        
+        # Возможности бота
+        elements.append(self._create_paragraph(
+            "✨ Возможности бота:",
+            'CustomSubheading'
+        ))
+        elements.append(Spacer(1, self.SPACER_SMALL))
+        
+        features = [
+            "• Анализ до 50,000 текстов за минуты",
+            "• Автоматическая кластеризация (BERTopic + HDBSCAN)",
+            "• Генерация названий кластеров через AI (YandexGPT)",
+            "• Экспорт результатов в CSV и PDF",
+            "• Иерархическая структура (мастер-категории)",
+            "• Метрики качества кластеризации"
+        ]
+        
+        for feature in features:
+            elements.append(self._create_paragraph(feature, 'CustomBody'))
+        
+        elements.append(Spacer(1, self.SPACER_MEDIUM))
+        
+        # Использование бота
+        elements.append(self._create_paragraph(
+            "📊 Используйте для:",
+            'CustomSubheading'
+        ))
+        elements.append(Spacer(1, self.SPACER_SMALL))
+        
+        use_cases = [
+            "• Анализа отзывов и обращений клиентов",
+            "• Обработки тикетов службы поддержки",
+            "• Исследования результатов опросов",
+            "• Приоритизации product roadmap",
+            "• Выявления трендов и проблем продукта"
+        ]
+        
+        for use_case in use_cases:
+            elements.append(self._create_paragraph(use_case, 'CustomBody'))
+        
+        elements.append(Spacer(1, self.SPACER_LARGE))
+        
+        # Призыв к действию
+        elements.append(self._create_paragraph(
+            "👉 Начать: t.me/cluster_master_bot",
+            'CustomHeading'
+        ))
+        elements.append(Spacer(1, self.SPACER_SMALL))
+        
+        elements.append(self._create_paragraph(
+            "💰 Бесплатно до 50,000 текстов | Без регистрации",
+            'CustomBody'
+        ))
+        
+        elements.append(Spacer(1, self.SPACER_LARGE))
+        elements.append(self._create_divider())
+        
+        # Футер
+        elements.append(self._create_paragraph(
+            f"Создано с помощью @cluster_master_bot | v0.3.0 | {date_str}",
+            'CustomSmall'
+        ))
         
         return elements

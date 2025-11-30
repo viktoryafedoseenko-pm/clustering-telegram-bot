@@ -26,6 +26,7 @@ from utils import (
 )
 from config import ADMIN_TELEGRAM_ID
 import datetime
+from progress_tracker import ProgressTracker
 
 PROCESSING_SEMAPHORE = asyncio.Semaphore(2)
 
@@ -305,9 +306,18 @@ async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         # Шаг 1: Загрузка файла
         progress_msg = await update.message.reply_text(
-            "⏳ <b>Обработка началась...</b>\n\n"
-            "📥 Загружаю файл...",
+            "⏳ <b>Начинаю обработку...</b>",
             parse_mode='HTML'
+        )
+        
+        # Создаём tracker
+        tracker = ProgressTracker(progress_msg, min_interval=3.0)
+        
+        # Этап 1: Загрузка файла
+        await tracker.update(
+            stage="📥 Загрузка файла",
+            percent=5,
+            force=True
         )
         
         file = await update.message.document.get_file()
@@ -315,6 +325,11 @@ async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await file.download_to_drive(file_path)
         
         # Шаг 2: Анализ файла
+        await tracker.update(
+            stage="📊 Анализ структуры файла",
+            percent=10
+        )
+        
         try:
             df = pd.read_csv(file_path, encoding='utf-8', dtype=str)
             n_rows = len(df)
@@ -326,65 +341,77 @@ async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
             MAX_ROWS = 50000
             if n_rows > MAX_ROWS:
                 logger.warning(f"⚠️ TOO MANY ROWS | User: {user_id} | Rows: {n_rows} > {MAX_ROWS}")
-                await progress_msg.edit_text(
-                    f"❌ <b>Слишком много строк</b>\n\n"
-                    f"Найдено: {n_rows} строк\n"
-                    f"Максимум: {MAX_ROWS} строк\n\n"
-                    f"💡 Пожалуйста, разделите файл на части",
-                    parse_mode='HTML'
+                await tracker.update(
+                    f"❌ Слишком много строк ({n_rows} > {MAX_ROWS})",
+                    0,
+                    "Пожалуйста, разделите файл на части",
+                    force=True
                 )
                 return
             
             if n_rows == 0:
-                await progress_msg.edit_text(
-                    "❌ <b>Файл пустой</b>\n\n"
+                await tracker.update(
+                    "❌ Файл пустой",
+                    0,
                     "В файле нет данных для анализа",
-                    parse_mode='HTML'
+                    force=True
                 )
                 return
             
-            # Показываем информацию о файле (с экранированием HTML)
-            first_texts = df.iloc[:3, 0].fillna("").astype(str).tolist()
-            examples = "\n".join([f"  • {html.escape(t[:50])}{'...' if len(t) > 50 else ''}" 
-                                 for t in first_texts if t.strip()])
-            
-            file_info = (
-                f"✅ <b>Файл загружен!</b>\n\n"
-                f"📄 <b>Информация о файле:</b>\n"
-                f"• Название: {html.escape(update.message.document.file_name)}\n"
-                f"• Размер: {file_size_mb:.2f} МБ\n"
-                f"• Строк: <b>{n_rows}</b>\n"
-                f"• Колонок: {n_cols}\n\n"
-            )
-            
-            if examples:
-                file_info += f"📝 <b>Примеры текстов:</b>\n{examples}\n\n"
-            
-            file_info += "🔄 <b>Начинаю анализ. Черёз несколько минут всё будет готово.</b>"
-            
-            await progress_msg.edit_text(file_info, parse_mode='HTML')
-            
         except Exception as e:
-            await progress_msg.edit_text(
-                f"❌ <b>Ошибка чтения файла</b>\n\n"
-                f"Не удалось прочитать CSV файл.\n\n"
-                f"💡 Проверьте:\n"
-                f"• Кодировка UTF-8\n"
-                f"• Корректный CSV формат\n"
-                f"• Файл не поврежден",
-                parse_mode='HTML'
+            await tracker.update(
+                "❌ Ошибка чтения файла",
+                0,
+                "Проверьте кодировку UTF-8 и формат CSV",
+                force=True
             )
             logger.error(f"CSV read error: {e}")
             return
         
-        # Шаг 3: Кластеризация
-        async def progress_callback(msg):
-            try:
-                await progress_msg.edit_text(msg, parse_mode='HTML')
-            except:
-                pass
+        # Шаг 3: Предобработка
+        await tracker.update(
+            stage="🧹 Предобработка текстов",
+            percent=20,
+            details="Очистка HTML, удаление дубликатов"
+        )
         
-        result_path, stats, hierarchy, master_names = clusterize_texts(file_path, progress_callback)
+        # Шаг 4: Кластеризация (самый долгий)
+        await tracker.update(
+            stage="🎯 Кластеризация текстов",
+            percent=40,
+            details=f"Это займёт 2-15 минут для {n_rows} текстов"
+        )
+        
+        # Callback для обновления из clustering.py
+        async def clustering_progress_callback(msg: str):
+            """Callback для обновления прогресса из процесса кластеризации"""
+            # Парсим сообщение и определяем процент
+            if "Предобработка" in msg or "предобработк" in msg.lower():
+                await tracker.update("🧹 Предобработка", 25)
+            elif "Загрузка модели" in msg or "модели" in msg.lower() or "🤖" in msg:
+                await tracker.update("🤖 Загрузка AI модели", 35)
+            elif "Кластеризация" in msg or "🎯" in msg:
+                await tracker.update("🎯 Кластеризация", 50)
+            elif "Объединение" in msg or "похожих" in msg or "🔗" in msg:
+                await tracker.update("🔗 Объединение похожих кластеров", 65)
+            elif "Генерация названий" in msg or "названий" in msg.lower() or "📝" in msg:
+                await tracker.update("📝 Генерация названий (AI)", 75)
+            elif "иерархии" in msg.lower() or "🗂️" in msg:
+                await tracker.update("🗂️ Создание иерархии", 85)
+            elif "Сохранение" in msg or "сохран" in msg.lower() or "💾" in msg:
+                await tracker.update("💾 Сохранение результатов", 95)
+        
+        # Вызываем кластеризацию с callback
+        result_path, stats, hierarchy, master_names = clusterize_texts(
+            file_path, 
+            progress_callback=clustering_progress_callback
+        )
+        
+        # Этап 5: Формирование результата
+        await tracker.update(
+            stage="📋 Формирование отчёта",
+            percent=98
+        )
         
         # Логирование: Результаты кластеризации
         logger.info(
@@ -426,18 +453,19 @@ async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
             data=cache_data
         )
 
-        # Информируем, что почти готово
-        await progress_msg.edit_text(
-            "⏳ <b>Почти готово...</b>\n\n"
-            "✅ Файл загружен\n"
-            "✅ Тексты проанализированы\n"
-            "📤 Отправляю результат...",
-            parse_mode='HTML'
-        )
+        # Завершение
+        await tracker.complete("✅ Анализ завершён!")
+        
+        # Удаляем прогресс-сообщение перед отправкой результата
+        await progress_msg.delete()
         
         # Показываем кнопки выбора
         keyboard = InlineKeyboardMarkup([
             [InlineKeyboardButton("📊 Детальный отчёт PDF", callback_data=f"pdf_{cache_key}")],
+            [InlineKeyboardButton("🔴 Что критично?", callback_data=f"insight_critical_{cache_key}")],
+            [InlineKeyboardButton("📋 Как приоритизировать?", callback_data=f"insight_priority_{cache_key}")],
+            [InlineKeyboardButton("💡 Что делать первым?", callback_data=f"insight_action_{cache_key}")],
+            [InlineKeyboardButton("📤 Поделиться с коллегой", callback_data=f"share_{cache_key}")],
             [InlineKeyboardButton("❌ Только CSV", callback_data="csv_only")]
         ])
 
@@ -578,6 +606,235 @@ def format_statistics(stats):
     
     return msg
 
+
+def generate_critical_insight(stats, cluster_names):
+    """Генерирует инсайт 'Что критично?'"""
+    top_clusters = stats.get('top_clusters', [])[:3]
+    
+    message = "🔴 <b>Критичные проблемы (топ-3 по объёму):</b>\n\n"
+    
+    for i, cluster in enumerate(top_clusters, 1):
+        percent = (cluster['size'] / stats['total_texts']) * 100
+        
+        message += f"{i}. <b>{html.escape(cluster['name'])}</b>\n"
+        message += f"   📊 {cluster['size']} обращений ({percent:.1f}%)\n"
+        
+        # Добавляем рекомендацию в зависимости от процента
+        if percent > 5:
+            message += f"   ⚠️ <i>Критично! Требует немедленных действий</i>\n"
+        elif percent > 3:
+            message += f"   🟡 <i>Важно. Включить в ближайший спринт</i>\n"
+        else:
+            message += f"   🟢 <i>Средний приоритет</i>\n"
+        
+        message += "\n"
+    
+    message += (
+        "💡 <b>Рекомендация:</b>\n"
+        "Сосредоточьтесь на проблемах с долей >5% — "
+        "это влияет на большинство пользователей.\n\n"
+        "📊 Полный анализ доступен в PDF-отчёте"
+    )
+    
+    return message
+
+
+def generate_priority_insight(stats, cluster_names):
+    """Генерирует инсайт 'Как приоритизировать?'"""
+    top_clusters = stats.get('top_clusters', [])
+    total = stats['total_texts']
+    
+    # Группируем по приоритетам
+    critical = [c for c in top_clusters if (c['size'] / total) > 0.05]
+    important = [c for c in top_clusters if 0.03 < (c['size'] / total) <= 0.05]
+    medium = [c for c in top_clusters if (c['size'] / total) <= 0.03]
+    
+    message = "📋 <b>Матрица приоритизации:</b>\n\n"
+    
+    message += f"🔴 <b>КРИТИЧНО</b> (>5% обращений):\n"
+    if critical:
+        for c in critical[:3]:
+            message += f"   • {html.escape(c['name'])} — {c['size']} текстов\n"
+    else:
+        message += "   Нет критичных проблем ✅\n"
+    message += "\n"
+    
+    message += f"🟡 <b>ВАЖНО</b> (3-5% обращений):\n"
+    if important:
+        for c in important[:3]:
+            message += f"   • {html.escape(c['name'])} — {c['size']} текстов\n"
+    else:
+        message += "   —\n"
+    message += "\n"
+    
+    message += f"🟢 <b>СРЕДНИЙ ПРИОРИТЕТ</b> (<3%):\n"
+    message += f"   {len(medium)} тем\n\n"
+    
+    message += (
+        "💡 <b>Подход:</b>\n"
+        "1. Решите критичные проблемы в первую очередь\n"
+        "2. Важные — включите в roadmap на месяц\n"
+        "3. Средние — фиксируйте как технический долг\n\n"
+        "📊 Детали в PDF-отчёте"
+    )
+    
+    return message
+
+
+def generate_action_insight(stats, cluster_names):
+    """Генерирует инсайт 'Что делать первым?'"""
+    top_clusters = stats.get('top_clusters', [])
+    if not top_clusters:
+        return "⚠️ Недостаточно данных для генерации плана действий."
+    
+    top_cluster = top_clusters[0]
+    total = stats['total_texts']
+    percent = (top_cluster['size'] / total) * 100
+    
+    message = "💡 <b>План действий на ближайшую неделю:</b>\n\n"
+    
+    message += f"<b>Проблема #1: {html.escape(top_cluster['name'])}</b>\n"
+    message += f"📊 Объём: {top_cluster['size']} обращений ({percent:.1f}%)\n\n"
+    
+    message += "🎯 <b>Что сделать:</b>\n\n"
+    
+    # Генерируем рекомендации в зависимости от типа проблемы
+    name_lower = top_cluster['name'].lower()
+    
+    if any(word in name_lower for word in ['баг', 'ошибк', 'не работает', 'проблем']):
+        message += (
+            "1️⃣ <b>День 1-2:</b> Воспроизвести баг и оценить масштаб\n"
+            "   → Создать задачу в Jira с приоритетом P0\n\n"
+            "2️⃣ <b>День 3-4:</b> Hotfix + тестирование\n"
+            "   → Привлечь QA для регрессионных тестов\n\n"
+            "3️⃣ <b>День 5:</b> Деплой + мониторинг метрик\n"
+            "   → Отследить снижение обращений в саппорт\n"
+        )
+    elif any(word in name_lower for word in ['оплат', 'платёж', 'деньг']):
+        message += (
+            "1️⃣ <b>День 1:</b> Проанализировать логи платёжной системы\n"
+            "   → Найти паттерны неуспешных транзакций\n\n"
+            "2️⃣ <b>День 2-3:</b> Связаться с платёжным провайдером\n"
+            "   → Проверить лимиты и настройки\n\n"
+            "3️⃣ <b>День 4-5:</b> Добавить альтернативный метод оплаты\n"
+            "   → Например, СБП или криптовалюту\n"
+        )
+    elif any(word in name_lower for word in ['диплом', 'сертификат', 'документ']):
+        message += (
+            "1️⃣ <b>День 1:</b> Автоматизировать уведомления о статусе\n"
+            "   → Email с трек-номером после выдачи\n\n"
+            "2️⃣ <b>День 2-3:</b> Создать FAQ 'Где мой диплом?'\n"
+            "   → Разместить на видном месте в ЛК\n\n"
+            "3️⃣ <b>День 4-5:</b> Добавить опцию самовывоза\n"
+            "   → Снизит нагрузку на доставку\n"
+        )
+    else:
+        message += (
+            "1️⃣ <b>День 1-2:</b> Глубже изучить проблему\n"
+            "   → Прочитать 20-30 примеров из кластера\n\n"
+            "2️⃣ <b>День 3-4:</b> Провести интервью с пользователями\n"
+            "   → Понять root cause проблемы\n\n"
+            "3️⃣ <b>День 5:</b> Создать план решения\n"
+            "   → Оценить impact и effort\n"
+        )
+    
+    message += (
+        "\n📈 <b>Метрика успеха:</b>\n"
+        f"Снижение обращений по теме '{html.escape(top_cluster['name'])}' "
+        f"с {top_cluster['size']} до <{int(top_cluster['size'] * 0.5)} за месяц\n\n"
+        "📊 Остальные проблемы см. в PDF-отчёте"
+    )
+    
+    return message
+
+
+async def handle_insight_request(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Обработчик запросов быстрых инсайтов"""
+    query = update.callback_query
+    await query.answer()
+    
+    callback_data = query.data
+    user_id = update.effective_user.id
+    
+    logger.info(f"💡 INSIGHT REQUEST | User: {user_id} | Action: {callback_data}")
+    
+    # Парсим тип инсайта и cache_key
+    # Формат: "insight_<type>_<cache_key>"
+    parts = callback_data.split("_")
+    if len(parts) < 3:
+        await query.message.reply_text(
+            "⚠️ Ошибка: неверный формат данных",
+            parse_mode='HTML'
+        )
+        return
+    
+    insight_type = parts[1]  # critical, priority, action
+    cache_key = "_".join(parts[2:])  # cache_key может содержать подчёркивания
+    
+    # Загружаем данные из кеша
+    cached_data = cache.load(cache_key)
+    if not cached_data:
+        await query.message.reply_text(
+            "⚠️ <b>Данные устарели</b>\n\n"
+            "Результаты хранятся 1 час.\n"
+            "Загрузите файл заново.",
+            parse_mode='HTML'
+        )
+        return
+    
+    stats = cached_data['stats']
+    cluster_names = cached_data.get('cluster_names', {})
+    
+    # Генерируем инсайт в зависимости от типа
+    if insight_type == "critical":
+        message = generate_critical_insight(stats, cluster_names)
+    elif insight_type == "priority":
+        message = generate_priority_insight(stats, cluster_names)
+    elif insight_type == "action":
+        message = generate_action_insight(stats, cluster_names)
+    else:
+        message = "⚠️ Неизвестный тип инсайта"
+    
+    await query.message.reply_text(message, parse_mode='HTML')
+
+
+async def handle_share_request(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Обработчик кнопки 'Поделиться'"""
+    query = update.callback_query
+    await query.answer()
+    
+    user_id = update.effective_user.id
+    logger.info(f"📤 SHARE REQUEST | User: {user_id}")
+    
+    # Получаем username бота
+    bot_username = context.bot.username
+    
+    message = (
+        "📤 <b>Как поделиться результатом:</b>\n\n"
+        
+        "<b>Вариант 1: Переслать файлы</b>\n"
+        "Просто перешлите CSV или PDF файл коллеге в Telegram.\n"
+        "Он сможет открыть и изучить результаты.\n\n"
+        
+        "<b>Вариант 2: Отправить ссылку на бота</b>\n"
+        f"Скопируйте и отправьте коллеге:\n"
+        f"<code>https://t.me/{bot_username}</code>\n\n"
+        
+        "💬 <b>Сообщение для коллеги:</b>\n"
+        "<i>Попробуй этот бот для анализа текстов! "
+        "Я только что обработал файл за несколько минут. "
+        "Результат — кластеры по темам + PDF с инсайтами. "
+        "Бесплатно до 50,000 текстов.</i>\n\n"
+        
+        "🎁 <b>Bonus:</b>\n"
+        "Если 3+ человека воспользуются ботом по вашей рекомендации, "
+        "вы получите Pro-доступ на месяц бесплатно!\n"
+        "(Функция в разработке)"
+    )
+    
+    await query.message.reply_text(message, parse_mode='HTML')
+
+
 # Обработчик запроса детального PDF
 async def handle_pdf_request(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Обработчик запроса детального PDF отчёта"""
@@ -591,14 +848,6 @@ async def handle_pdf_request(update: Update, context: ContextTypes.DEFAULT_TYPE)
     logger.info(f"📊 PDF REQUEST | User: {user_id} | Action: {callback_data}")
     
     callback_data = query.data
-    
-    if callback_data == "csv_only":
-        await query.edit_message_reply_markup(reply_markup=None)
-        await query.message.reply_text(
-            "✅ Отлично! CSV файл уже у вас.\n\n"
-            "Хотите проанализировать другие тексты? Отправляйте новый файл!"
-        )
-        return
     
     # Извлекаем cache_key
     if not callback_data.startswith("pdf_"):
@@ -765,7 +1014,19 @@ def main():
     application.add_handler(MessageHandler(filters.Document.ALL, handle_file))
 
     from telegram.ext import CallbackQueryHandler
-    application.add_handler(CallbackQueryHandler(handle_pdf_request))
+    application.add_handler(CallbackQueryHandler(handle_pdf_request, pattern="^pdf_"))
+    application.add_handler(CallbackQueryHandler(handle_insight_request, pattern="^insight_"))
+    application.add_handler(CallbackQueryHandler(handle_share_request, pattern="^share_"))
+    async def handle_csv_only(update: Update, context: ContextTypes.DEFAULT_TYPE):
+        query = update.callback_query
+        await query.answer()
+        await query.edit_message_reply_markup(reply_markup=None)
+        await query.message.reply_text(
+            "✅ Отлично! CSV файл уже у вас.\n\n"
+            "Хотите проанализировать другие тексты? Отправляйте новый файл!"
+        )
+    
+    application.add_handler(CallbackQueryHandler(handle_csv_only, pattern="^csv_only$"))
 
     application.add_error_handler(error_handler)
     
