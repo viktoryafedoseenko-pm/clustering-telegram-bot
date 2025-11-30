@@ -558,6 +558,7 @@ def clusterize_texts(file_path: str, progress_callback=None):
         df["cluster_id"] = 0
         df["cluster_name"] = "Все тексты"
         out = file_path.replace(".csv", "_clustered.csv")
+        df[text_column] = df[text_column].apply(sanitize_csv_value)
         df.to_csv(out, index=False, encoding='utf-8')
         return out, {'n_clusters': 1, 'total_texts': n}
 
