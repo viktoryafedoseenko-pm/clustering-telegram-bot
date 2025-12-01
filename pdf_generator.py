@@ -276,7 +276,7 @@ class PDFReportGenerator:
         """
         
         if n_masters > 0:
-            summary_text += f"<br/><b>Объединено в:</b> {n_masters} категорий"
+            summary_text += f"<br/><b>Объединено в:</b> {n_masters} мастер-категорий"
         
         elements.append(self._create_paragraph(summary_text, 'CustomBody'))
         elements.append(Spacer(1, self.SPACER_LARGE))
@@ -288,12 +288,16 @@ class PDFReportGenerator:
         ))
         elements.append(Spacer(1, self.SPACER_SMALL))
         
-        cluster_dist = self.df['cluster_id'].value_counts().head(3)
+        # ИСПРАВЛЕНО: берём топ-8, потом фильтруем noise, потом топ-3
+        cluster_dist = self.df['cluster_id'].value_counts()
+        
+        # Фильтруем noise
+        cluster_dist = cluster_dist[cluster_dist.index != -1]
+        
+        # Берём топ-3
+        cluster_dist = cluster_dist.head(3)
         
         for rank, (cluster_id, count) in enumerate(cluster_dist.items(), 1):
-            if cluster_id == -1:
-                continue
-            
             cluster_name = remove_emoji(self.cluster_names.get(cluster_id, f"Тема {cluster_id}"))
             percent = (count / len(self.df)) * 100
             
@@ -340,6 +344,7 @@ class PDFReportGenerator:
         ))
         
         return elements
+
     
     def _create_topic_structure(self):
         """Структура тем (вместо 'Мастер-категории')"""
@@ -470,18 +475,29 @@ class PDFReportGenerator:
         return elements
     
     def _create_pie_chart(self):
-        """Круговая диаграмма топ-8 (ИДЕАЛЬНО КРУГЛАЯ)"""
+        """Круговая диаграмма топ-8 (круглая, с полными подписями)"""
         cluster_dist = self.df['cluster_id'].value_counts().head(8)
+        
+        # ВАЖНО: фильтруем noise (-1) ПОСЛЕ взятия топ-8
         cluster_dist = cluster_dist[cluster_dist.index != -1]
         
+        # Если после фильтрации осталось меньше 8, берём сколько есть
+        if len(cluster_dist) == 0:
+            logger.warning("No valid clusters for pie chart")
+            return None
+        
         labels = [
-            remove_emoji(self.cluster_names.get(cid, f"Тема {cid}"))[:30]
+            remove_emoji(self.cluster_names.get(cid, f"Тема {cid}"))[:35]
             for cid in cluster_dist.index
         ]
         sizes = cluster_dist.values
         
-        # Строго квадратная фигура 10x10 дюймов
-        fig, ax = plt.subplots(figsize=(10, 10))
+        # Увеличиваем фигуру для размещения подписей
+        fig = plt.figure(figsize=(12, 12), dpi=120)
+        
+        # Уменьшаем область круга, чтобы подписи поместились
+        # [left, bottom, width, height] - все от 0 до 1
+        ax = fig.add_axes([0.15, 0.15, 0.7, 0.7])  # было [0.1, 0.1, 0.8, 0.8]
         
         colors_palette = [
             '#5E35B1', '#7E57C2', '#9575CD', '#B39DDB',
@@ -494,44 +510,49 @@ class PDFReportGenerator:
             autopct='%1.1f%%',
             startangle=90,
             colors=colors_palette[:len(sizes)],
-            textprops={'fontsize': 11, 'color': '#263238'},
-            pctdistance=0.80,
-            labeldistance=1.08,
-            wedgeprops={'linewidth': 2, 'edgecolor': 'white'}  # белые разделители
+            textprops={'fontsize': 10, 'color': '#263238'},
+            pctdistance=0.78,
+            labeldistance=1.15,  # увеличили расстояние для подписей
+            wedgeprops={'linewidth': 2, 'edgecolor': 'white'}
         )
         
         # Проценты
         for autotext in autotexts:
             autotext.set_color('white')
             autotext.set_fontweight('bold')
-            autotext.set_fontsize(12)
+            autotext.set_fontsize(11)
         
-        # Подписи
-        for text in texts:
-            text.set_fontsize(10)
+        # Подписи - переносим длинные на новую строку
+        for text, label in zip(texts, labels):
+            text.set_fontsize(9)
+            # Если подпись длинная, переносим
+            if len(label) > 25:
+                words = label.split()
+                if len(words) > 3:
+                    mid = len(words) // 2
+                    new_label = ' '.join(words[:mid]) + '\n' + ' '.join(words[mid:])
+                    text.set_text(new_label)
         
-        # Принудительно круг
-        ax.axis('equal')
+        ax.set_aspect('equal')
         
-        plt.title('Топ-8 тем по размеру', 
-                fontsize=15, 
-                pad=30, 
-                color='#263238', 
-                weight='bold')
+        # Заголовок
+        fig.suptitle('Топ-8 тем по размеру', 
+                    fontsize=15, 
+                    y=0.96,
+                    color='#263238', 
+                    weight='bold')
         
-        # КРИТИЧНО: НЕ используем bbox_inches='tight'!
+        # Сохранение
         img_buffer = io.BytesIO()
-        plt.savefig(img_buffer, 
+        fig.savefig(img_buffer, 
                 format='png', 
-                dpi=120,  # уменьшили для оптимизации размера
-                facecolor='white',
-                # bbox_inches='tight' УБРАЛИ!
-                )
-        plt.close()
+                dpi=120,
+                facecolor='white')
+        plt.close(fig)
         img_buffer.seek(0)
         
-        # Квадратное изображение в PDF
         return Image(img_buffer, width=5.5*inch, height=5.5*inch)
+
 
 
 
