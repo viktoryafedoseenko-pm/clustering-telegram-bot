@@ -470,76 +470,69 @@ class PDFReportGenerator:
         return elements
     
     def _create_pie_chart(self):
-        """Круговая диаграмма топ-8 (идеальный круг)"""
+        """Круговая диаграмма топ-8 (ИДЕАЛЬНО КРУГЛАЯ)"""
         cluster_dist = self.df['cluster_id'].value_counts().head(8)
-        
-        # Фильтруем noise (-1)
         cluster_dist = cluster_dist[cluster_dist.index != -1]
         
         labels = [
-            remove_emoji(self.cluster_names.get(cid, f"Тема {cid}"))[:35]  # оптимальная длина
+            remove_emoji(self.cluster_names.get(cid, f"Тема {cid}"))[:30]
             for cid in cluster_dist.index
         ]
         sizes = cluster_dist.values
         
-        # Квадратная фигура для идеального круга
-        fig, ax = plt.subplots(figsize=(9, 9))  # квадрат!
+        # Строго квадратная фигура 10x10 дюймов
+        fig, ax = plt.subplots(figsize=(10, 10))
         
-        # Фиолетовая палитра (8 цветов)
         colors_palette = [
             '#5E35B1', '#7E57C2', '#9575CD', '#B39DDB',
             '#D1C4E9', '#BA68C8', '#AB47BC', '#9C27B0'
         ]
         
-        # Создаём круговую диаграмму
         wedges, texts, autotexts = ax.pie(
             sizes,
             labels=labels,
             autopct='%1.1f%%',
             startangle=90,
             colors=colors_palette[:len(sizes)],
-            textprops={'fontsize': 10, 'color': '#263238'},
-            pctdistance=0.82,   # проценты ближе к краю
-            labeldistance=1.15,  # подписи дальше от круга
-            explode=[0.02] * len(sizes)  # небольшой разрыв между секторами
+            textprops={'fontsize': 11, 'color': '#263238'},
+            pctdistance=0.80,
+            labeldistance=1.08,
+            wedgeprops={'linewidth': 2, 'edgecolor': 'white'}  # белые разделители
         )
         
-        # Улучшаем читаемость процентов
+        # Проценты
         for autotext in autotexts:
             autotext.set_color('white')
             autotext.set_fontweight('bold')
-            autotext.set_fontsize(11)
+            autotext.set_fontsize(12)
         
-        # Улучшаем читаемость названий
+        # Подписи
         for text in texts:
-            text.set_fontsize(9)
-            text.set_weight('normal')
+            text.set_fontsize(10)
         
-        # Важно: axis('equal') гарантирует круглую форму
+        # Принудительно круг
         ax.axis('equal')
         
         plt.title('Топ-8 тем по размеру', 
-                fontsize=14, 
-                pad=25, 
+                fontsize=15, 
+                pad=30, 
                 color='#263238', 
                 weight='bold')
         
-        # Добавляем отступы вокруг графика
-        plt.subplots_adjust(left=0.1, right=0.9, top=0.92, bottom=0.08)
-        
-        # Сохранение
+        # КРИТИЧНО: НЕ используем bbox_inches='tight'!
         img_buffer = io.BytesIO()
         plt.savefig(img_buffer, 
                 format='png', 
-                bbox_inches='tight',
-                pad_inches=0.3,  # добавляем padding
-                dpi=150, 
-                facecolor='white')
+                dpi=120,  # уменьшили для оптимизации размера
+                facecolor='white',
+                # bbox_inches='tight' УБРАЛИ!
+                )
         plt.close()
         img_buffer.seek(0)
         
-        # Размер в PDF: квадратный формат
+        # Квадратное изображение в PDF
         return Image(img_buffer, width=5.5*inch, height=5.5*inch)
+
 
 
     def _create_bar_chart(self):
