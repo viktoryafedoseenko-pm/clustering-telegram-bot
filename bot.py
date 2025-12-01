@@ -510,8 +510,8 @@ async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # Показываем кнопки выбора
         keyboard = InlineKeyboardMarkup([
             [InlineKeyboardButton("Детальный отчёт в PDF", callback_data=f"pdf_{cache_key}")],
-            [InlineKeyboardButton("📈 Метрики качества", callback_data=f"quality_{cache_key}")],
-            [InlineKeyboardButton("Поделиться", callback_data=f"share_{cache_key}")]
+            [InlineKeyboardButton("Качество кластеризации", callback_data=f"quality_{cache_key}")],
+            [InlineKeyboardButton("Поделиться результатами", callback_data=f"share_{cache_key}")]
         ])
 
         MAX_CAPTION_LENGTH = 1000  # С запасом (лимит 1024)
@@ -870,11 +870,6 @@ async def handle_share_request(update: Update, context: ContextTypes.DEFAULT_TYP
         f"Скопируйте и отправьте коллеге:\n"
         f"<code>https://t.me/{bot_username}</code>\n\n"
         
-        "💬 <b>Сообщение для коллеги:</b>\n"
-        "<i>Попробуй этот бот для анализа текстов! "
-        "Я только что обработал файл за несколько минут. "
-        "Результат — кластеры по темам + PDF с инсайтами. "
-        "Бесплатно до 50,000 текстов.</i>\n\n"
         
     )
     

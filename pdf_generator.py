@@ -276,7 +276,7 @@ class PDFReportGenerator:
         """
         
         if n_masters > 0:
-            summary_text += f"<br/><b>Объединено в:</b> {n_masters} мастер-категорий"
+            summary_text += f"<br/><b>Объединено в:</b> {n_masters} категорий"
         
         elements.append(self._create_paragraph(summary_text, 'CustomBody'))
         elements.append(Spacer(1, self.SPACER_LARGE))
@@ -405,11 +405,11 @@ class PDFReportGenerator:
             
             sub_data.sort(key=lambda x: x['count'], reverse=True)
             
-            for sub in sub_data[:5]:  # только топ-5
+            for sub in sub_data[:7]:  # только топ-5
                 subtopic_text = f"  ├ {sub['name']}"
                 elements.append(self._create_paragraph(subtopic_text, 'CustomSmall'))
             
-            if len(sub_data) > 5:
+            if len(sub_data) > 7:
                 elements.append(self._create_paragraph(
                     f"  └ ещё {len(sub_data) - 3} подтем...",
                     'CustomSmall'
@@ -469,69 +469,88 @@ class PDFReportGenerator:
         
         return elements
     
-    
     def _create_pie_chart(self):
-        """Круговая диаграмма (фиолетовая палитра)"""
-        cluster_dist = self.df['cluster_id'].value_counts().head(8)  # топ-8
+        """Круговая диаграмма топ-8 (без "Прочее")"""
+        cluster_dist = self.df['cluster_id'].value_counts().head(8)
+        
+        # Фильтруем noise (-1)
+        cluster_dist = cluster_dist[cluster_dist.index != -1]
         
         labels = [
-            remove_emoji(self.cluster_names.get(cid, f"Тема {cid}"))[:25]
+            remove_emoji(self.cluster_names.get(cid, f"Тема {cid}"))[:40]  # увеличили лимит
             for cid in cluster_dist.index
         ]
         sizes = cluster_dist.values
         
-        fig, ax = plt.subplots(figsize=(7, 5))
+        fig, ax = plt.subplots(figsize=(10, 7))  # увеличили размер
         
-        # Фиолетовая палитра
+        # Фиолетовая палитра (8 цветов)
         colors_palette = [
             '#5E35B1', '#7E57C2', '#9575CD', '#B39DDB',
-            '#D1C4E9', '#EDE7F6', '#B0BEC5', '#90A4AE'
+            '#D1C4E9', '#BA68C8', '#AB47BC', '#9C27B0'
         ]
         
+        # Параметры для улучшения читаемости
         wedges, texts, autotexts = ax.pie(
             sizes,
             labels=labels,
             autopct='%1.1f%%',
             startangle=90,
-            colors=colors_palette,
-            textprops={'fontsize': 9, 'color': '#263238'}
+            colors=colors_palette[:len(sizes)],
+            textprops={'fontsize': 10, 'color': '#263238'},
+            pctdistance=0.85,  # расстояние процентов от центра
+            labeldistance=1.1   # расстояние названий от центра
         )
         
+        # Улучшаем читаемость процентов
         for autotext in autotexts:
             autotext.set_color('white')
             autotext.set_fontweight('bold')
+            autotext.set_fontsize(11)
+        
+        # Улучшаем читаемость названий
+        for text in texts:
+            text.set_fontsize(9)
         
         ax.axis('equal')
-        plt.title('Топ-8 тем по размеру', fontsize=12, pad=15, color='#263238')
+        plt.title('Топ-8 тем по размеру', fontsize=14, pad=20, color='#263238', weight='bold')
         
+        # Сохранение с большим разрешением
         img_buffer = io.BytesIO()
-        plt.savefig(img_buffer, format='png', bbox_inches='tight', dpi=150, facecolor='white')
+        plt.savefig(img_buffer, format='png', bbox_inches='tight', dpi=200, facecolor='white')
         plt.close()
         img_buffer.seek(0)
         
-        return Image(img_buffer, width=4.5*inch, height=3.4*inch)
-    
+        return Image(img_buffer, width=6*inch, height=5*inch)  # увеличили размер
+
+
     def _create_bar_chart(self):
-        """Столбчатая диаграмма (градиент фиолетового)"""
-        cluster_dist = self.df['cluster_id'].value_counts().head(8)  # топ-8
+        """Столбчатая диаграмма топ-8 (БЕЗ "Прочее")"""
+        cluster_dist = self.df['cluster_id'].value_counts().head(8)
+        
+        # Фильтруем noise (-1)
+        cluster_dist = cluster_dist[cluster_dist.index != -1]
         
         labels = [
-            remove_emoji(self.cluster_names.get(cid, f"Тема {cid}"))[:30]
+            remove_emoji(self.cluster_names.get(cid, f"Тема {cid}"))[:50]  # увеличили лимит
             for cid in cluster_dist.index
         ]
         
-        fig, ax = plt.subplots(figsize=(7, 4.5))
+        fig, ax = plt.subplots(figsize=(8, 6))  # увеличили высоту
         
         # Градиент от тёмного к светлому фиолетовому
         bar_colors = ['#5E35B1', '#7E57C2', '#9575CD', '#B39DDB', 
-                      '#D1C4E9', '#E1BEE7', '#CE93D8', '#BA68C8']
+                    '#D1C4E9', '#E1BEE7', '#CE93D8', '#BA68C8']
         
-        bars = ax.barh(labels, cluster_dist.values, color=bar_colors[:len(labels)])
+        bars = ax.barh(labels, cluster_dist.values, 
+                    color=bar_colors[:len(labels)],
+                    edgecolor='#424242',
+                    linewidth=0.5)
         
-        ax.set_xlabel('Количество текстов', fontsize=10, color='#263238')
-        ax.set_title('Топ-8 самых крупных тем', fontsize=12, pad=12, color='#263238')
+        ax.set_xlabel('Количество текстов', fontsize=11, color='#263238', weight='bold')
+        ax.set_title('Топ-8 самых крупных тем', fontsize=14, pad=15, color='#263238', weight='bold')
         ax.invert_yaxis()
-        ax.tick_params(axis='both', colors='#546E7A', labelsize=9)
+        ax.tick_params(axis='both', colors='#546E7A', labelsize=10)
         ax.spines['top'].set_visible(False)
         ax.spines['right'].set_visible(False)
         ax.spines['left'].set_color('#E0E0E0')
@@ -541,15 +560,19 @@ class PDFReportGenerator:
         
         # Значения на столбцах
         for i, v in enumerate(cluster_dist.values):
-            ax.text(v + max(cluster_dist.values) * 0.01, i, str(v), 
-                   va='center', fontsize=9, color='#263238')
+            ax.text(v + max(cluster_dist.values) * 0.01, i, f'{v:,}', 
+                va='center', fontsize=10, color='#263238', weight='bold')
+        
+        # Добавляем больше места для длинных названий
+        plt.tight_layout()
         
         img_buffer = io.BytesIO()
-        plt.savefig(img_buffer, format='png', bbox_inches='tight', dpi=150, facecolor='white')
+        plt.savefig(img_buffer, format='png', bbox_inches='tight', dpi=200, facecolor='white')
         plt.close()
         img_buffer.seek(0)
         
-        return Image(img_buffer, width=5*inch, height=3.2*inch)
+        return Image(img_buffer, width=6*inch, height=4.5*inch)
+
     
     def _create_topic_pages(self):
         """Страницы с топ-8 темами (по 2 на страницу, 4 примера)"""

@@ -68,3 +68,4 @@ wheel==0.45.1
 sentence-transformers>=2.2.0
 matplotlib
 reportlab
+wordcloud
