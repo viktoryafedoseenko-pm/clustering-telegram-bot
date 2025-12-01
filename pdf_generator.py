@@ -405,11 +405,11 @@ class PDFReportGenerator:
             
             sub_data.sort(key=lambda x: x['count'], reverse=True)
             
-            for sub in sub_data[:3]:  # только топ-3
+            for sub in sub_data[:5]:  # только топ-5
                 subtopic_text = f"  ├ {sub['name']}"
                 elements.append(self._create_paragraph(subtopic_text, 'CustomSmall'))
             
-            if len(sub_data) > 3:
+            if len(sub_data) > 5:
                 elements.append(self._create_paragraph(
                     f"  └ ещё {len(sub_data) - 3} подтем...",
                     'CustomSmall'
@@ -448,64 +448,27 @@ class PDFReportGenerator:
             logger.error(f"Error creating bar chart: {e}")
         
         # Word Cloud
-        try:
-            wc_img = self._create_word_cloud()
-            if wc_img:
-                elements.append(self._create_paragraph(
-                    "ЧАСТОТНЫЙ АНАЛИЗ",
-                    'CustomSubheading'
-                ))
-                elements.append(Spacer(1, self.SPACER_SMALL))
+        # try:
+        #     wc_img = self._create_word_cloud()
+        #     if wc_img:
+        #         elements.append(self._create_paragraph(
+        #             "ЧАСТОТНЫЙ АНАЛИЗ",
+        #             'CustomSubheading'
+        #         ))
+        #         elements.append(Spacer(1, self.SPACER_SMALL))
                 
-                elements.append(self._create_paragraph(
-                    "Наиболее употребляемые слова в обращениях:",
-                    'CustomSmall'
-                ))
-                elements.append(Spacer(1, self.SPACER_SMALL))
+        #         elements.append(self._create_paragraph(
+        #             "Наиболее употребляемые слова в обращениях:",
+        #             'CustomSmall'
+        #         ))
+        #         elements.append(Spacer(1, self.SPACER_SMALL))
                 
-                elements.append(wc_img)
-        except Exception as e:
-            logger.error(f"Error creating word cloud: {e}")
+        #         elements.append(wc_img)
+        # except Exception as e:
+        #     logger.error(f"Error creating word cloud: {e}")
         
         return elements
     
-    def _create_word_cloud(self):
-        """Создаёт word cloud из всех текстов"""
-        try:
-            # Объединяем все тексты
-            all_texts = ' '.join(self.df.iloc[:, 0].astype(str).tolist())
-            
-            # Создаём word cloud
-            wordcloud = WordCloud(
-                width=800,
-                height=400,
-                background_color=None,
-                mode='RGBA',
-                font_path=str(FONT_PATH),
-                colormap='Purples',  # фиолетовая палитра
-                max_words=30,
-                relative_scaling=0.5,
-                min_font_size=10
-            ).generate(all_texts)
-            
-            # Создаём изображение
-            fig, ax = plt.subplots(figsize=(8, 4))
-            ax.imshow(wordcloud, interpolation='bilinear')
-            ax.axis('off')
-            plt.tight_layout(pad=0)
-            
-            # Сохранение
-            img_buffer = io.BytesIO()
-            plt.savefig(img_buffer, format='png', bbox_inches='tight', dpi=150, 
-                       facecolor='white', transparent=False)
-            plt.close()
-            img_buffer.seek(0)
-            
-            return Image(img_buffer, width=5.5*inch, height=2.75*inch)
-            
-        except Exception as e:
-            logger.error(f"Word cloud error: {e}")
-            return None
     
     def _create_pie_chart(self):
         """Круговая диаграмма (фиолетовая палитра)"""
@@ -639,12 +602,12 @@ class PDFReportGenerator:
             
             # Основной паттерн (если есть описание от LLM)
             # TODO: добавить поле pattern в cluster_names
-            elements.append(self._create_paragraph(
-                "<b>Основной паттерн:</b><br/>"
-                "Пользователи интересуются данным вопросом в различных контекстах.",
-                'CustomBody'
-            ))
-            elements.append(Spacer(1, self.SPACER_SMALL))
+            # elements.append(self._create_paragraph(
+            #     "<b>Основной паттерн:</b><br/>"
+            #     "Пользователи интересуются данным вопросом в различных контекстах.",
+            #     'CustomBody'
+            # ))
+            # elements.append(Spacer(1, self.SPACER_SMALL))
             
             # Типичные запросы (4 примера вместо 6)
             elements.append(self._create_paragraph(
