@@ -60,13 +60,14 @@ class LLMClassifier:
 
 Ответ верни СТРОГО в формате JSON:
 {{
-    "category": "название_категории",
+    "category": "название_категории_БЕЗ_НОМЕРА",
     "confidence": 0.95,
     "reasoning": "краткое объяснение выбора"
 }}
 
 Важно:
 - Используй точное название категории из списка
+- НЕ добавляй номера типа "1.", "2." и т.д.
 - confidence должен быть числом от 0 до 1
 - reasoning - краткое объяснение (1-2 предложения)
 """
@@ -120,17 +121,8 @@ class LLMClassifier:
             raise
     
     def _parse_classification_result(self, response: str) -> Tuple[str, float, str]:
-        """
-        Парсит ответ модели.
-        
-        Args:
-            response: Ответ от LLM
-            
-        Returns:
-            Кортеж (категория, уверенность, объяснение)
-        """
+        """Парсит ответ модели."""
         try:
-            # Пытаемся извлечь JSON из ответа
             json_start = response.find("{")
             json_end = response.rfind("}") + 1
             
@@ -138,11 +130,15 @@ class LLMClassifier:
                 json_str = response[json_start:json_end]
                 result = json.loads(json_str)
                 
-                return (
-                    result.get("category", ""),
-                    float(result.get("confidence", 0.0)),
-                    result.get("reasoning", "")
-                )
+                category = result.get("category", "")
+                confidence = float(result.get("confidence", 0.0))
+                reasoning = result.get("reasoning", "")
+                
+                # Если категория начинается с "1. ", "2. " и т.д. - убираем номер
+                import re
+                category = re.sub(r'^\d+\.\s*', '', category)
+                
+                return (category, confidence, reasoning)
             else:
                 logger.warning(f"Не удалось найти JSON в ответе: {response}")
                 return ("", 0.0, "Ошибка парсинга")
@@ -150,6 +146,7 @@ class LLMClassifier:
         except json.JSONDecodeError as e:
             logger.error(f"Ошибка парсинга JSON: {e}\nОтвет: {response}")
             return ("", 0.0, "Ошибка парсинга JSON")
+
     
     def classify_text(
         self,
