@@ -136,6 +136,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         reply_markup=reply_markup
     )
 
+
+
 async def handle_mode_selection(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Обработчик выбора режима"""
     query = update.callback_query
@@ -146,6 +148,11 @@ async def handle_mode_selection(update: Update, context: ContextTypes.DEFAULT_TY
     
     logger.info(f"🎯 MODE SELECT | User: {user_id} | Mode: {action}")
     
+    if action == "back_to_start":
+        context.user_data.clear()
+        await start(update, context)
+        return
+
     if action == "show_help":
         await help_command(update, context)
         return
@@ -249,6 +256,73 @@ async def handle_categories_input(update: Update, context: ContextTypes.DEFAULT_
         f"⏱ Время: ~1-2 сек на текст",
         parse_mode='HTML'
     )
+
+async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Команда /help"""
+    # Если вызвана из callback
+    if update.callback_query:
+        query = update.callback_query
+        await query.answer()
+        
+        help_msg = """
+❓ <b>Справка по использованию</b>
+
+<b>🔍 Кластеризация:</b>
+• Автоматический поиск тем
+• Не нужно задавать категории
+• Для исследования данных
+
+<b>🏷️ Классификация:</b>
+• Ты задаёшь категории
+• AI распределяет тексты
+• Когда категории известны
+
+<b>Формат файла:</b>
+• CSV с текстами в первой колонке
+• Кодировка UTF-8
+• Макс. 20 МБ, 50k строк (кластеризация)
+• Макс. 10k строк (классификация)
+
+<b>Команды:</b>
+/start - начать работу
+/help - эта справка
+/about - о технологиях
+/feedback - обратная связь
+        """
+        
+        keyboard = [[InlineKeyboardButton("🔙 Назад в меню", callback_data="back_to_start")]]
+        await query.edit_message_text(help_msg, parse_mode='HTML', reply_markup=InlineKeyboardMarkup(keyboard))
+    else:
+        help_msg = """
+❓ <b>Справка по использованию</b>
+
+<b>Формат файла:</b>
+• CSV файл с текстами
+• Тексты для анализа должны содержаться в первой колонке
+• Кодировка: UTF-8
+• Лимиты: 5 файлов/час, макс. 20 МБ, 50k строк
+
+<b>Пример CSV:</b>
+<code>текст
+Не пришел заказ вовремя
+Качество товара плохое
+Долго ждал доставку
+Товар не соответствует описанию</code>
+
+<b>Что получите:</b>
+✅ Файл с кластерами
+✅ Статистику по кластерам
+✅ Подробный PDF-отчёт с примерами кластеров
+
+<b>Команды:</b>
+/start - начать работу
+/help - эта справка
+/about - о технологиях
+/feedback - обратная связь
+
+Есть вопросы? Просто отправьте файл! 📊
+        """
+        await update.message.reply_text(help_msg, parse_mode='HTML')
 
 
 async def about_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -355,7 +429,6 @@ async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"❌ Ошибка при получении статистики: {str(e)}",
             parse_mode='HTML'
         )
-
 
 async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
     progress_msg = None
@@ -1306,12 +1379,8 @@ def main():
     application.add_handler(CommandHandler("about", about_command))
     application.add_handler(CommandHandler("feedback", feedback_command))
     application.add_handler(CommandHandler("stats", stats_command))
-    application.add_handler(MessageHandler(filters.Document.ALL, handle_file))
-    # Обработчики для классификации
-    application.add_handler(CallbackQueryHandler(handle_mode_selection, pattern="^mode_|^show_help$"))
-    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_categories_input))
-
     from telegram.ext import CallbackQueryHandler
+    application.add_handler(CallbackQueryHandler(handle_mode_selection, pattern="^mode_|^show_help$|^back_to_start$"))
     application.add_handler(CallbackQueryHandler(handle_pdf_request, pattern="^pdf_"))
     application.add_handler(CallbackQueryHandler(handle_insight_request, pattern="^insight_"))
     application.add_handler(CallbackQueryHandler(handle_share_request, pattern="^share_"))
@@ -1323,9 +1392,10 @@ def main():
             "✅ Отлично! CSV файл уже у вас.\n\n"
             "Хотите проанализировать другие тексты? Отправляйте новый файл!"
         )
-    
-    application.add_handler(CallbackQueryHandler(handle_csv_only, pattern="^csv_only$"))
 
+    application.add_handler(CallbackQueryHandler(handle_csv_only, pattern="^csv_only$"))
+    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_categories_input))
+    application.add_handler(MessageHandler(filters.Document.ALL, handle_file))
     application.add_error_handler(error_handler)
     
     # Периодические задачи
