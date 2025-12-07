@@ -158,31 +158,35 @@ def validate_ground_truth(
     df: pd.DataFrame,
     expected_categories: List[str]
 ) -> Tuple[bool, str]:
-    """
-    Валидирует файл с ground truth.
+    """Валидирует файл с ground truth."""
     
-    Args:
-        df: DataFrame с ground truth
-        expected_categories: Ожидаемые категории
-        
-    Returns:
-        (валидно, сообщение об ошибке)
-    """
     # Проверка наличия второй колонки
     if len(df.columns) < 2:
         return False, "В файле должно быть минимум 2 колонки: текст и правильная_категория"
     
+    # Проверка на пустые значения
+    if df.iloc[:, 0].isna().any():
+        return False, "Первая колонка (текст) содержит пустые значения"
+    
+    if df.iloc[:, 1].isna().any():
+        empty_count = df.iloc[:, 1].isna().sum()
+        return False, f"Вторая колонка (категория) содержит {empty_count} пустых значений"
+    
     # Проверка категорий
-    true_categories = set(df.iloc[:, 1].dropna().unique())
+    true_categories = set(df.iloc[:, 1].astype(str).str.strip().unique())
     expected_set = set(expected_categories)
     
     unknown_categories = true_categories - expected_set
     if unknown_categories:
-        cats_str = ", ".join(list(unknown_categories)[:5])
+        # html.escape для безопасности
+        import html
+        cats_str = ", ".join([html.escape(cat) for cat in list(unknown_categories)[:5]])
+        expected_str = "\n".join([f"• {html.escape(cat)}" for cat in expected_categories])
+        
         return False, (
             f"В файле найдены неизвестные категории: {cats_str}\n\n"
-            f"Ожидаемые категории:\n" + 
-            "\n".join([f"• {cat}" for cat in expected_categories])
+            f"Ожидаемые категории:\n{expected_str}"
         )
     
     return True, ""
+

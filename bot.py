@@ -1040,11 +1040,19 @@ async def process_classification_mode(
         
     except Exception as e:
         logger.error(f"❌ CLASSIFICATION ERROR | User: {user_id} | Error: {str(e)}", exc_info=True)
-        await progress_msg.edit_text(
+        
+        # НЕ редактируй progress_msg, а отправь новое сообщение
+        try:
+            await progress_msg.delete()
+        except:
+            pass
+        
+        await update.message.reply_text(
             f"❌ <b>Ошибка классификации</b>\n\n"
             f"Попробуйте еще раз или обратитесь к администратору.",
             parse_mode='HTML'
         )
+
 
 
 def format_statistics(stats):
