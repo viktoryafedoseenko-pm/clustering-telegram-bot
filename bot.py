@@ -878,11 +878,12 @@ async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "• Использовать UTF-8 кодировку\n"
             "• Убедиться, что есть текстовые данные"
         )
-        if progress_msg:
-            await progress_msg.edit_text(error_msg, parse_mode='HTML')
-        else:
-            await update.message.reply_text(error_msg, parse_mode='HTML')
-        logger.error(f"Error processing file: {e}", exc_info=True)
+        try:
+            await progress_msg.delete()
+        except:
+            pass
+        
+        await update.message.reply_text(error_msg, parse_mode='HTML')
         
     finally:
         # Очистка временных файлов
