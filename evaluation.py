@@ -4,8 +4,10 @@
 """
 
 import logging
+import html
 from typing import Dict, List, Tuple
 import pandas as pd
+
 
 logger = logging.getLogger(__name__)
 
