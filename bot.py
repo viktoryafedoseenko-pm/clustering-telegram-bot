@@ -241,9 +241,9 @@ async def handle_categories_input(update: Update, context: ContextTypes.DEFAULT_
         return
     
     context.user_data['categories'] = categories
-    if "Другое" not in categories and "Не определено" not in categories:
-        categories.append("Другое")
-        logger.info(f"Автоматически добавлена категория 'Другое' для user {user_id}")
+    # if "Другое" not in categories and "Не определено" not in categories:
+        # categories.append("Другое")
+        # logger.info(f"Автоматически добавлена категория 'Другое' для user {user_id}")
     context.user_data['descriptions'] = None
     
     categories_list = "\n".join([f"{i+1}. {cat}" for i, cat in enumerate(categories)])
@@ -913,9 +913,12 @@ async def process_classification_mode(
             f"• Обработано текстов: {n_texts}\n"
             f"• Категорий: {len(categories)}\n"
             f"• Средняя уверенность: {stats['avg_confidence']:.2f}\n\n"
+        )
+
+        if stats.get('undefined_count', 0) > 0:
+            stats_msg += f"⚠️ Не удалось определить: {stats['undefined_count']} ({stats['undefined_percentage']:.1f}%)\n"
             f"📋 <b>Распределение (топ-5):</b>\n{dist_text}\n\n"
             f"✨ Готово! Хотите классифицировать другие тексты? Отправляйте новый файл!"
-        )
         
         await tracker.complete("✅ Классификация завершена!")
         

@@ -132,11 +132,15 @@ class LLMClassifier:
                 json_str = response[json_start:json_end]
                 result = json.loads(json_str)
                 
-                category = result.get("category", "")
+                category = result.get("category", None)
                 
-                # Убираем номера
-                import re
-                category = re.sub(r'^\d+\.\s*', '', str(category))
+                # Если модель вернула null - оставляем None
+                if category is None or str(category).lower() == "null":
+                    category = None
+                else:
+                    # Убираем номера только если категория не None
+                    import re
+                    category = re.sub(r'^\d+\.\s*', '', str(category))
                 
                 confidence = float(result.get("confidence", 0.0))
                 reasoning = result.get("reasoning", "")
@@ -176,23 +180,18 @@ class LLMClassifier:
         response = self._call_yandex_gpt(prompt)
         category, confidence, reasoning = self._parse_classification_result(response)
         
-        # Если категория пустая или None
-        if not category or category == "None" or category.lower() == "none":
-            logger.warning(f"Модель определила, что текст не подходит ни под одну категорию: {text[:50]}")
-            # Создаем специальную категорию "Не определено"
-            category = "Не определено"
-            confidence = 1.0
-            reasoning = "Текст не соответствует ни одной из заданных категорий"
-
-        # Проверяем, что категория из списка
-        # if category not in categories:
-            # logger.warning(
-            #     f"Модель вернула категорию '{category}', которой нет в списке. "
-            #     f"Используем первую категорию из списка."
-            # )
-            # category = categories[0]
-            # confidence = 0.5
-            # reasoning = "Категория выбрана автоматически из-за ошибки модели"
+       # Если модель не смогла определить категорию
+        if category is None or category == "" or str(category).lower() == "none":
+            logger.info(f"Модель не смогла определить категорию для: {text[:50]}...")
+            category = "⚠️ Не удалось определить"
+            confidence = 1.0  # Высокая уверенность что не подходит
+            reasoning = reasoning or "Текст не соответствует ни одной из заданных категорий"
+        
+        # Проверка что категория из списка (но пропускаем специальную категорию)
+        elif category not in categories:
+            logger.warning(f"Модель вернула неизвестную категорию: '{category}'")
+            # Можно тут либо оставить как есть, либо тоже пометить как "Не определено"
+            # Сейчас оставляем как есть - покажет что модель вернула
         
         return {
             "category": category,
@@ -264,17 +263,15 @@ class LLMClassifier:
         return df
     
     def get_classification_stats(self, df: pd.DataFrame) -> Dict[str, any]:
-        """
-        Получает статистику по результатам классификации.
+        """Получает статистику по результатам классификации."""
         
-        Args:
-            df: DataFrame с результатами классификации
-            
-        Returns:
-            Словарь со статистикой
-        """
+        # Считаем случаи когда модель не определила
+        undefined_count = len(df[df['category'] == "⚠️ Не удалось определить"])
+        
         stats = {
             "total_texts": len(df),
+            "undefined_count": undefined_count,  # НОВОЕ ПОЛЕ
+            "undefined_percentage": (undefined_count / len(df) * 100) if len(df) > 0 else 0,
             "categories": {},
             "avg_confidence": float(df['confidence'].mean()),
             "min_confidence": float(df['confidence'].min()),
