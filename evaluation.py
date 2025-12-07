@@ -131,8 +131,9 @@ def format_evaluation_report(
     
     for cat in sorted_categories:
         m = metrics['per_category'][cat]
+        safe_cat = html.escape(cat)
         report += (
-            f"\n<b>{cat}</b> (примеров: {m['support']})\n"
+            f"\n<b>{safe_cat}</b> (примеров: {m['support']})\n"
             f"  • F1: {m['f1']:.2f} | "
             f"Precision: {m['precision']:.2f} | "
             f"Recall: {m['recall']:.2f}\n"
@@ -143,10 +144,14 @@ def format_evaluation_report(
         report += f"\n\n❌ <b>Примеры ошибок ({len(examples)} шт.):</b>\n"
         for i, ex in enumerate(examples, 1):
             text_preview = ex['text'][:80] + "..." if len(ex['text']) > 80 else ex['text']
+            safe_text = html.escape(text_preview)
+            safe_true = html.escape(ex['true_category'])
+            safe_pred = html.escape(ex['predicted_category'])
+            
             report += (
-                f"\n{i}. <i>\"{text_preview}\"</i>\n"
-                f"   Правильно: <b>{ex['true_category']}</b>\n"
-                f"   Модель: <b>{ex['predicted_category']}</b>\n"
+                f"\n{i}. <i>\"{safe_text}\"</i>\n"
+                f"   Правильно: <b>{safe_true}</b>\n"
+                f"   Модель: <b>{safe_pred}</b>\n"
             )
     else:
         report += "\n\n✅ <b>Ошибок нет! Все тексты классифицированы верно.</b>"
