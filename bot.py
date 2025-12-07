@@ -241,6 +241,9 @@ async def handle_categories_input(update: Update, context: ContextTypes.DEFAULT_
         return
     
     context.user_data['categories'] = categories
+    if "Другое" not in categories and "Не определено" not in categories:
+        categories.append("Другое")
+        logger.info(f"Автоматически добавлена категория 'Другое' для user {user_id}")
     context.user_data['descriptions'] = None
     
     categories_list = "\n".join([f"{i+1}. {cat}" for i, cat in enumerate(categories)])

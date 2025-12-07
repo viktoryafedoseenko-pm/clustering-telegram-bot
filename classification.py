@@ -189,14 +189,14 @@ class LLMClassifier:
             reasoning = "Текст не соответствует ни одной из заданных категорий"
 
         # Проверяем, что категория из списка
-        if category not in categories:
-            logger.warning(
-                f"Модель вернула категорию '{category}', которой нет в списке. "
-                f"Используем первую категорию из списка."
-            )
-            category = categories[0]
-            confidence = 0.5
-            reasoning = "Категория выбрана автоматически из-за ошибки модели"
+        # if category not in categories:
+            # logger.warning(
+            #     f"Модель вернула категорию '{category}', которой нет в списке. "
+            #     f"Используем первую категорию из списка."
+            # )
+            # category = categories[0]
+            # confidence = 0.5
+            # reasoning = "Категория выбрана автоматически из-за ошибки модели"
         
         return {
             "category": category,
