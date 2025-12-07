@@ -26,7 +26,6 @@ from telegram.constants import ParseMode
 from dotenv import load_dotenv
 
 from clustering import process_clustering
-from classification import LLMClassifier, validate_categories, parse_categories_from_text
 from analytics import generate_detailed_report
 from cache_manager import CacheManager
 from rate_limiter import RateLimiter
@@ -54,22 +53,27 @@ cache_manager = CacheManager()
 rate_limiter = RateLimiter()
 classifier = None
 
-# Проверка наличия YandexGPT API
-YANDEX_API_AVAILABLE = bool(os.getenv("YANDEX_API_KEY") and os.getenv("YANDEX_FOLDER_ID"))
-
-if YANDEX_API_AVAILABLE:
-    try:
+# Проверка наличия YandexGPT API и модуля классификации
+YANDEX_API_AVAILABLE = False
+try:
+    from classification import LLMClassifier, validate_categories, parse_categories_from_text
+    if os.getenv("YANDEX_API_KEY") and os.getenv("YANDEX_FOLDER_ID"):
         classifier = LLMClassifier()
+        YANDEX_API_AVAILABLE = True
         logger.info("YandexGPT API инициализирован для классификации")
-    except Exception as e:
-        logger.warning(f"Не удалось инициализировать классификатор: {e}")
-        YANDEX_API_AVAILABLE = False
+except ImportError:
+    logger.warning("Модуль classification.py не найден. Классификация отключена.")
+except Exception as e:
+    logger.warning(f"Не удалось инициализировать классификатор: {e}")
 
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Обработчик команды /start."""
     user = update.effective_user
     logger.info(f"Пользователь {user.id} ({user.username}) запустил бота")
+    
+    # Очищаем старые данные
+    context.user_data.clear()
     
     welcome_text = f"""👋 Привет, {user.first_name}!
 
@@ -102,11 +106,19 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     reply_markup = InlineKeyboardMarkup(keyboard)
     
-    await update.message.reply_text(
-        welcome_text,
-        reply_markup=reply_markup,
-        parse_mode=ParseMode.MARKDOWN
-    )
+    # Проверяем откуда пришел запрос
+    if update.callback_query:
+        await update.callback_query.edit_message_text(
+            welcome_text,
+            reply_markup=reply_markup,
+            parse_mode=ParseMode.MARKDOWN
+        )
+    else:
+        await update.message.reply_text(
+            welcome_text,
+            reply_markup=reply_markup,
+            parse_mode=ParseMode.MARKDOWN
+        )
     
     return CHOOSING_MODE
 
@@ -115,6 +127,15 @@ async def mode_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Обработчик выбора режима работы."""
     query = update.callback_query
     await query.answer()
+    
+    # Обработка кнопки "Помощь"
+    if query.data == "help":
+        await help_command(update, context)
+        return CHOOSING_MODE
+    
+    # Обработка кнопки "Вернуться в меню"
+    if query.data == "restart":
+        return await start(update, context)
     
     mode = query.data.replace("mode_", "")
     context.user_data['mode'] = mode
@@ -157,16 +178,15 @@ async def mode_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 📝 Введи категории (каждая с новой строки):
 
-Например:
+**Например:**
 Проблемы с оплатой
 Вопросы по доставке
 Качество товара
 Технические проблемы
 Общие вопросы
-Или через запятую:
-`Оплата, Доставка, Качество, Техподдержка`
+Или через запятую: Оплата, Доставка, Качество, Техподдержка
 
-💡 Требования:
+💡 **Требования:**
 • Минимум 2 категории
 • Максимум 20 категорий
 • Четкие и понятные названия"""
@@ -200,15 +220,16 @@ async def receive_categories(update: Update, context: ContextTypes.DEFAULT_TYPE)
     keyboard = [
         [InlineKeyboardButton("✅ Продолжить без описаний", callback_data="skip_descriptions")],
         [InlineKeyboardButton("📝 Добавить описания", callback_data="add_descriptions")],
-        [InlineKeyboardButton("🔙 Изменить категории", callback_data="edit_categories")]
+        [InlineKeyboardButton("✏️ Изменить категории", callback_data="edit_categories")]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
     
     await update.message.reply_text(
-        f"✅ Категории приняты ({len(categories)} шт.):\n\n"
+        f"✅ **Категории приняты** ({len(categories)} шт.):\n\n"
         f"{categories_list}\n\n"
         "Хочешь добавить описания для более точной классификации?",
-        reply_markup=reply_markup
+        reply_markup=reply_markup,
+        parse_mode=ParseMode.MARKDOWN
     )
     
     return ENTERING_DESCRIPTIONS
@@ -224,7 +245,7 @@ async def descriptions_callback(update: Update, context: ContextTypes.DEFAULT_TY
     if action == "skip_descriptions":
         context.user_data['descriptions'] = None
         
-        text = """✅ Категории готовы!
+        text = """✅ **Категории готовы!**
 
 📎 Теперь отправь CSV-файл с текстами:
 • Первая колонка — тексты для классификации
@@ -234,26 +255,26 @@ async def descriptions_callback(update: Update, context: ContextTypes.DEFAULT_TY
 
 ⏱️ Время обработки: ~1-2 секунды на текст"""
         
-        await query.edit_message_text(text)
+        await query.edit_message_text(text, parse_mode=ParseMode.MARKDOWN)
         return PROCESSING_FILE
         
     elif action == "add_descriptions":
         categories = context.user_data['categories']
         categories_list = "\n".join([f"{i+1}. {cat}" for i, cat in enumerate(categories)])
         
-        text = f"""📝 Добавь описания для категорий
+        text = f"""📝 **Добавь описания для категорий**
 
-Формат (каждая с новой строки):
-`Название категории: описание`
-
-Например:
+**Формат** (каждая с новой строки):
+Название категории: краткое описание
+**Например:**
 Проблемы с оплатой: ошибки при оплате, не проходит платеж, возврат средств
 Вопросы по доставке: сроки доставки, отслеживание, не пришел заказ
 Качество товара: брак, несоответствие описанию, повреждения
-Твои категории:
+
+**Твои категории:**
 {categories_list}
 
-Или /skip чтобы пропустить описания"""
+Введи описания или /skip чтобы пропустить."""
         
         await query.edit_message_text(
             text,
@@ -294,15 +315,16 @@ async def receive_descriptions(update: Update, context: ContextTypes.DEFAULT_TYP
     # Показываем что получилось
     if descriptions:
         desc_text = "\n".join([
-            f"• {cat}: {desc}" for cat, desc in descriptions.items()
+            f"• **{cat}**: {desc}" for cat, desc in descriptions.items()
         ])
-        result_text = f"✅ Описания добавлены:\n\n{desc_text}"
+        result_text = f"✅ **Описания добавлены:**\n\n{desc_text}"
     else:
         result_text = "⚠️ Не удалось распознать описания. Продолжаем без них."
     
     await update.message.reply_text(
         f"{result_text}\n\n"
-        "📎 Теперь отправь CSV-файл с текстами для классификации."
+        "📎 Теперь отправь CSV-файл с текстами для классификации.",
+        parse_mode=ParseMode.MARKDOWN
     )
     
     return PROCESSING_FILE
@@ -349,6 +371,7 @@ async def process_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Скачивание файла
     status_msg = await update.message.reply_text("📥 Скачиваю файл...")
     
+    file_path = None
     try:
         file = await document.get_file()
         file_path = f"/tmp/{user.id}_{document.file_name}"
@@ -357,7 +380,7 @@ async def process_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.info(
             f"Файл скачан: {document.file_name} "
             f"({format_file_size(document.file_size)}) "
-            f"от пользователя {user.id}"
+            f"от пользователя {user.id}, режим: {mode}"
         )
         
         # Чтение CSV
@@ -401,7 +424,7 @@ async def process_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     finally:
         # Очистка временного файла
-        if os.path.exists(file_path):
+        if file_path and os.path.exists(file_path):
             os.remove(file_path)
     
     return ConversationHandler.END
@@ -605,6 +628,7 @@ def format_classification_stats(stats: Dict, categories: list) -> str:
 
 async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Отмена текущей операции."""
+    context.user_data.clear()
     await update.message.reply_text(
         "❌ Операция отменена.\n"
         "Используй /start чтобы начать заново."
@@ -633,7 +657,6 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 **Команды:**
 /start - начать работу
 /help - эта справка
-/about - о технологиях
 /cancel - отменить операцию
 
 **Лимиты:**
@@ -642,10 +665,17 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 • Классификация: до 10,000 текстов
 • Rate limit: 5 файлов в час"""
     
-    await update.message.reply_text(
-        help_text,
-        parse_mode=ParseMode.MARKDOWN
-    )
+    # Если вызвана из inline кнопки
+    if update.callback_query:
+        await update.callback_query.edit_message_text(
+            help_text,
+            parse_mode=ParseMode.MARKDOWN
+        )
+    else:
+        await update.message.reply_text(
+            help_text,
+            parse_mode=ParseMode.MARKDOWN
+        )
 
 
 def main():
@@ -661,11 +691,15 @@ def main():
     
     # Conversation handler
     conv_handler = ConversationHandler(
-        entry_points=[CommandHandler("start", start)],
+        entry_points=[
+            CommandHandler("start", start),
+            CallbackQueryHandler(start, pattern="^restart$")
+        ],
         states={
             CHOOSING_MODE: [
                 CallbackQueryHandler(mode_callback, pattern="^mode_"),
-                CallbackQueryHandler(help_command, pattern="^help$")
+                CallbackQueryHandler(mode_callback, pattern="^help$"),
+                CallbackQueryHandler(mode_callback, pattern="^restart$")
             ],
             ENTERING_CATEGORIES: [
                 MessageHandler(filters.TEXT & ~filters.COMMAND, receive_categories)
@@ -673,7 +707,7 @@ def main():
             ENTERING_DESCRIPTIONS: [
                 CallbackQueryHandler(descriptions_callback),
                 MessageHandler(filters.TEXT & ~filters.COMMAND, receive_descriptions),
-                CommandHandler("skip", lambda u, c: descriptions_callback(u, c))
+                CommandHandler("skip", descriptions_callback)
             ],
             PROCESSING_FILE: [
                 MessageHandler(filters.Document.ALL, process_file)
@@ -682,14 +716,15 @@ def main():
         fallbacks=[
             CommandHandler("cancel", cancel),
             CommandHandler("start", start)
-        ]
+        ],
+        allow_reentry=True
     )
     
     application.add_handler(conv_handler)
     application.add_handler(CommandHandler("help", help_command))
     
     # Запуск
-    logger.info("Бот запущен")
+    logger.info("Бот запущен (с поддержкой классификации)")
     application.run_polling(allowed_updates=Update.ALL_TYPES)
 
 
