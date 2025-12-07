@@ -27,6 +27,12 @@ from utils import (
 from config import ADMIN_TELEGRAM_ID
 import datetime
 from progress_tracker import ProgressTracker
+from evaluation import (
+    calculate_metrics, 
+    get_error_examples, 
+    format_evaluation_report,
+    validate_ground_truth
+)
 
 PROCESSING_SEMAPHORE = asyncio.Semaphore(2)
 
@@ -241,24 +247,67 @@ async def handle_categories_input(update: Update, context: ContextTypes.DEFAULT_
         return
     
     context.user_data['categories'] = categories
-    # if "Другое" not in categories and "Не определено" not in categories:
-        # categories.append("Другое")
-        # logger.info(f"Автоматически добавлена категория 'Другое' для user {user_id}")
     context.user_data['descriptions'] = None
-    
+
     categories_list = "\n".join([f"{i+1}. {cat}" for i, cat in enumerate(categories)])
-    
+
+    keyboard = [
+        [InlineKeyboardButton("📋 Обычная классификация", callback_data="class_normal")],
+        [InlineKeyboardButton("📊 Оценка качества", callback_data="class_eval")]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+
     await update.message.reply_text(
         f"✅ <b>Категории приняты ({len(categories)} шт.):</b>\n\n"
         f"{categories_list}\n\n"
-        f"📎 Теперь отправь CSV-файл с текстами для классификации.\n\n"
-        f"<b>Требования:</b>\n"
-        f"• Первая колонка — тексты\n"
-        f"• Кодировка UTF-8\n"
-        f"• Макс. 10,000 строк\n\n"
-        f"⏱ Время: ~1-2 сек на текст",
+        f"<b>Выбери режим:</b>",
+        reply_markup=reply_markup,
         parse_mode='HTML'
     )
+
+async def handle_classification_mode_choice(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Обработчик выбора режима классификации (обычная/оценка)"""
+    query = update.callback_query
+    await query.answer()
+    
+    user_id = update.effective_user.id
+    action = query.data
+    
+    logger.info(f"📊 CLASSIFICATION MODE | User: {user_id} | Mode: {action}")
+    
+    if action == "class_normal":
+        context.user_data['eval_mode'] = False
+        
+        text = (
+            "📋 <b>Обычная классификация</b>\n\n"
+            "📎 Отправь CSV-файл с текстами:\n"
+            "• Одна колонка с текстами\n"
+            "• Кодировка UTF-8\n"
+            "• Макс. 10,000 строк\n\n"
+            "⏱ Время: ~1-2 сек на текст"
+        )
+        
+    elif action == "class_eval":
+        context.user_data['eval_mode'] = True
+        
+        categories = context.user_data['categories']
+        categories_list = "\n".join([f"• {cat}" for cat in categories])
+        
+        text = (
+            "📊 <b>Оценка качества классификации</b>\n\n"
+            "📎 Отправь CSV-файл с <b>двумя колонками</b>:\n"
+            "1. <b>текст</b> - текст для классификации\n"
+            "2. <b>правильная_категория</b> - эталонная категория\n\n"
+            "<b>Пример CSV:</b>\n"
+            "<code>текст,правильная_категория\n"
+            '"Не могу оплатить",Вопросы по оплате\n'
+            '"Где диплом?",Вопросы по дипломам</code>\n\n'
+            f"<b>Ожидаемые категории:</b>\n{categories_list}\n\n"
+            "⚠️ Категории в файле должны точно совпадать с введёнными"
+        )
+    
+    await query.edit_message_text(text, parse_mode='HTML')
+
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Команда /help"""
@@ -854,11 +903,32 @@ async def process_classification_mode(
     user_id = update.effective_user.id
     categories = context.user_data['categories']
     descriptions = context.user_data.get('descriptions')
+    eval_mode = context.user_data.get('eval_mode', False)  # НОВОЕ
     
-    texts = df.iloc[:, 0].astype(str).tolist()
+    # Если режим оценки - валидируем файл
+    if eval_mode:
+        is_valid, error_msg = validate_ground_truth(df, categories)
+        if not is_valid:
+            await progress_msg.edit_text(
+                f"❌ <b>Ошибка в файле:</b>\n\n{error_msg}",
+                parse_mode='HTML'
+            )
+            return
+        
+        # Извлекаем тексты и ground truth
+        texts = df.iloc[:, 0].astype(str).tolist()
+        ground_truth = df.iloc[:, 1].astype(str).tolist()
+    else:
+        # Обычная классификация
+        texts = df.iloc[:, 0].astype(str).tolist()
+        ground_truth = None
+    
     n_texts = len(texts)
     
-    logger.info(f"🏷️ CLASSIFICATION START | User: {user_id} | Texts: {n_texts} | Categories: {len(categories)}")
+    logger.info(
+        f"🏷️ CLASSIFICATION START | User: {user_id} | "
+        f"Texts: {n_texts} | Categories: {len(categories)} | Eval: {eval_mode}"
+    )
     
     try:
         await tracker.update(
@@ -895,32 +965,52 @@ async def process_classification_mode(
         
         logger.info(f"✅ CLASSIFICATION COMPLETE | User: {user_id} | Texts: {n_texts}")
         
-        # Формируем статистику
-        sorted_cats = sorted(
-            stats['categories'].items(),
-            key=lambda x: x[1]['count'],
-            reverse=True
-        )[:5]
-        
-        dist_text = "\n".join([
-            f"  • {cat}: {info['count']} ({info['percentage']:.1f}%)"
-            for cat, info in sorted_cats
-        ])
-        
-        stats_msg = (
-            f"✅ <b>Классификация завершена!</b>\n\n"
-            f"📊 <b>Результаты:</b>\n"
-            f"• Обработано текстов: {n_texts}\n"
-            f"• Категорий: {len(categories)}\n"
-            f"• Средняя уверенность: {stats['avg_confidence']:.2f}\n\n"
-        )
-
-        if stats.get('undefined_count', 0) > 0:
-            stats_msg += f"⚠️ Не удалось определить: {stats['undefined_count']} ({stats['undefined_percentage']:.1f}%)\n"
-        
-        stats_msg += f"📋 <b>Распределение (топ-5):</b>\n{dist_text}\n\n"    
-        stats_msg += f"✨ Готово! Хотите классифицировать другие тексты? Отправляйте новый файл!"
+        if eval_mode:
+            # Режим оценки - добавляем ground truth в результат
+            result_df['true_category'] = ground_truth
+            result_df['correct'] = result_df['category'] == result_df['true_category']
             
+            # Рассчитываем метрики
+            metrics = calculate_metrics(
+                y_true=ground_truth,
+                y_pred=result_df['category'].tolist(),
+                categories=categories
+            )
+            
+            # Получаем примеры ошибок
+            examples = get_error_examples(result_df, n=3)
+            
+            # Форматируем отчёт
+            stats_msg = format_evaluation_report(metrics, examples, categories)
+            stats_msg += "\n\n✨ CSV-файл с результатами прикреплён ниже"
+            
+        else:
+            # Обычный режим - существующая логика
+            sorted_cats = sorted(
+                stats['categories'].items(),
+                key=lambda x: x[1]['count'],
+                reverse=True
+            )[:5]
+            
+            dist_text = "\n".join([
+                f"• {cat}: {info['count']} ({info['percentage']:.1f}%)"
+                for cat, info in sorted_cats
+            ])
+            
+            stats_msg = (
+                f"✅ <b>Классификация завершена!</b>\n\n"
+                f"📊 <b>Результаты:</b>\n"
+                f"• Обработано текстов: {n_texts}\n"
+                f"• Категорий: {len(categories)}\n"
+                f"• Средняя уверенность: {stats['avg_confidence']:.2f}\n\n"
+            )
+            
+            if stats.get('undefined_count', 0) > 0:
+                stats_msg += f"⚠️ <b>Не удалось определить:</b> {stats['undefined_count']} ({stats['undefined_percentage']:.1f}%)\n\n"
+            
+            stats_msg += f"📋 <b>Распределение (топ-5):</b>\n{dist_text}\n\n"
+            stats_msg += f"✨ Готово! Хотите классифицировать другие тексты? Отправляйте новый файл!"
+
         await tracker.complete("✅ Классификация завершена!")
         
         # Удаляем прогресс
@@ -1401,6 +1491,7 @@ def main():
         )
 
     application.add_handler(CallbackQueryHandler(handle_csv_only, pattern="^csv_only$"))
+    application.add_handler(CallbackQueryHandler(handle_classification_mode_choice, pattern="^class_"))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_categories_input))
     application.add_handler(MessageHandler(filters.Document.ALL, handle_file))
     application.add_error_handler(error_handler)
