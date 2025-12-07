@@ -28,19 +28,6 @@ from config import ADMIN_TELEGRAM_ID
 import datetime
 from progress_tracker import ProgressTracker
 
-classifier = None
-CLASSIFICATION_AVAILABLE = False
-try:
-    from classification import LLMClassifier, validate_categories, parse_categories_from_text
-    if os.getenv("YANDEX_API_KEY") and os.getenv("YANDEX_FOLDER_ID"):
-        classifier = LLMClassifier()
-        CLASSIFICATION_AVAILABLE = True
-        logger.info("✅ Classification module loaded")
-except ImportError:
-    logger.warning("⚠️ classification.py not found - classification disabled")
-except Exception as e:
-    logger.warning(f"⚠️ Classification init failed: {e}")
-
 PROCESSING_SEMAPHORE = asyncio.Semaphore(2)
 
 # Настройки логирования
@@ -76,6 +63,20 @@ root_logger.addHandler(file_handler)
 root_logger.addHandler(console_handler)
 
 logger = logging.getLogger(__name__)
+
+# Импорты для классификации (опциональные)
+classifier = None
+CLASSIFICATION_AVAILABLE = False
+try:
+    from classification import LLMClassifier, validate_categories, parse_categories_from_text
+    if os.getenv("YANDEX_API_KEY") and os.getenv("YANDEX_FOLDER_ID"):
+        classifier = LLMClassifier()
+        CLASSIFICATION_AVAILABLE = True
+        logger.info("✅ Classification module loaded")
+except ImportError:
+    logger.warning("⚠️ classification.py not found - classification disabled")
+except Exception as e:
+    logger.warning(f"⚠️ Classification init failed: {e}")
 
 # Загрузка токена
 load_dotenv()
