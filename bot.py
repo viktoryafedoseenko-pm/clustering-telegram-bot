@@ -909,7 +909,13 @@ async def process_classification_mode(
     if eval_mode:
         is_valid, error_msg = validate_ground_truth(df, categories)
         if not is_valid:
-            await progress_msg.edit_text(
+            # НЕ редактируй progress_msg, а отправь новое сообщение
+            try:
+                await progress_msg.delete()
+            except:
+                pass
+            
+            await update.message.reply_text(
                 f"❌ <b>Ошибка в файле:</b>\n\n{error_msg}",
                 parse_mode='HTML'
             )
