@@ -134,10 +134,6 @@ class LLMClassifier:
                 
                 category = result.get("category", "")
                 
-                # Обработка null/None из JSON
-                if category is None or category == "null":
-                    category = ""
-                
                 # Убираем номера
                 import re
                 category = re.sub(r'^\d+\.\s*', '', str(category))
