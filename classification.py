@@ -68,6 +68,7 @@ class LLMClassifier:
 Важно:
 - Используй точное название категории из списка (учитывай регистр)
 - Если категория написана с ошибкой – не исправляй её
+- Если текст НЕ подходит ни под одну категорию - используй null 
 - НЕ добавляй номера типа "1.", "2." и т.д.
 - confidence должен быть числом от 0 до 1
 - reasoning - краткое объяснение (1-2 предложения)
@@ -132,21 +133,30 @@ class LLMClassifier:
                 result = json.loads(json_str)
                 
                 category = result.get("category", "")
+                
+                # Обработка null/None из JSON
+                if category is None or category == "null":
+                    category = ""
+                
+                # Убираем номера
+                import re
+                category = re.sub(r'^\d+\.\s*', '', str(category))
+                
                 confidence = float(result.get("confidence", 0.0))
                 reasoning = result.get("reasoning", "")
                 
-                # Если категория начинается с "1. ", "2. " и т.д. - убираем номер
-                import re
-                category = re.sub(r'^\d+\.\s*', '', category)
-                
                 return (category, confidence, reasoning)
             else:
-                logger.warning(f"Не удалось найти JSON в ответе: {response}")
+                logger.warning(f"Не удалось найти JSON в ответе: {response[:200]}")
                 return ("", 0.0, "Ошибка парсинга")
                 
         except json.JSONDecodeError as e:
-            logger.error(f"Ошибка парсинга JSON: {e}\nОтвет: {response}")
+            logger.error(f"Ошибка парсинга JSON: {e}\nОтвет: {response[:200]}")
             return ("", 0.0, "Ошибка парсинга JSON")
+        except Exception as e:
+            logger.error(f"Неожиданная ошибка при парсинге: {e}")
+            return ("", 0.0, f"Ошибка: {str(e)}")
+
 
     
     def classify_text(
@@ -170,6 +180,14 @@ class LLMClassifier:
         response = self._call_yandex_gpt(prompt)
         category, confidence, reasoning = self._parse_classification_result(response)
         
+        # Если категория пустая или None
+        if not category or category == "None" or category.lower() == "none":
+            logger.warning(f"Модель определила, что текст не подходит ни под одну категорию: {text[:50]}")
+            # Создаем специальную категорию "Не определено"
+            category = "Не определено"
+            confidence = 1.0
+            reasoning = "Текст не соответствует ни одной из заданных категорий"
+
         # Проверяем, что категория из списка
         if category not in categories:
             logger.warning(
