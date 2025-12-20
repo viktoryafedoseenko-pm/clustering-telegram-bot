@@ -33,8 +33,32 @@ from evaluation import (
     format_evaluation_report,
     validate_ground_truth
 )
+from category_generator import CategoryGenerator, CategorySuggestion
+from prompt_manager import PromptManager
+
+# Создать глобальный экземпляр
+prompt_manager = PromptManager()
+category_generator = None
 
 PROCESSING_SEMAPHORE = asyncio.Semaphore(2)
+
+# Состояния для ConversationHandler
+class BotStates:
+    """Состояния бота"""
+    CHOOSING_MODE = "choosing_mode"
+    # Существующие
+    WAITING_FOR_CATEGORIES = "waiting_for_categories"
+    WAITING_FOR_FILE = "waiting_for_file"
+    # Новые для автогенерации
+    CHOOSING_CATEGORY_METHOD = "choosing_category_method"
+    ASKING_GENERATION_PROMPT = "asking_generation_prompt"
+    WAITING_FOR_GENERATION_PROMPT = "waiting_for_generation_prompt"
+    WAITING_FOR_SAMPLE_FILE = "waiting_for_sample_file"
+    GENERATING_CATEGORIES = "generating_categories"
+    SHOWING_GENERATED_CATEGORIES = "showing_generated_categories"
+    EDITING_CATEGORIES = "editing_categories"
+    ASKING_CLASSIFICATION_PROMPT = "asking_classification_prompt"
+    WAITING_FOR_CLASSIFICATION_PROMPT = "waiting_for_classification_prompt"
 
 # Настройки логирования
 # Создаём директорию для логов
@@ -83,6 +107,17 @@ except ImportError:
     logger.warning("⚠️ classification.py not found - classification disabled")
 except Exception as e:
     logger.warning(f"⚠️ Classification init failed: {e}")
+
+if classifier:
+    try:
+        category_generator = CategoryGenerator(
+            api_key=os.getenv("YANDEX_API_KEY"),
+            folder_id=os.getenv("YANDEX_FOLDER_ID")
+        )
+        logger.info("✅ Category generator loaded")
+    except Exception as e:
+        logger.warning(f"⚠️ Category generator init failed: {e}")
+
 
 # Загрузка токена
 load_dotenv()
@@ -199,10 +234,51 @@ async def handle_mode_selection(update: Update, context: ContextTypes.DEFAULT_TY
         
         context.user_data['mode'] = 'classification'
         
+        # НОВОЕ: Выбор способа задания категорий
         text = """
 🏷️ <b>Режим: Классификация по категориям</b>
 
-Ты задаёшь категории → я распределяю тексты по ним с помощью AI.
+Выбери способ задания категорий:
+
+🎯 <b>Ввести вручную</b>
+• Ты знаешь нужные категории
+• Быстрый старт
+
+🤖 <b>Сгенерировать автоматически</b>
+• AI проанализирует твои тексты
+• Предложит категории
+• Ты сможешь их отредактировать
+
+💡 Автогенерация полезна, когда не знаешь, какие категории нужны.
+        """
+        
+        keyboard = [
+            [InlineKeyboardButton("🎯 Ввести вручную", callback_data="cat_method_manual")],
+            [InlineKeyboardButton("🤖 Сгенерировать автоматически", callback_data="cat_method_auto")],
+            [InlineKeyboardButton("🔙 Назад", callback_data="back_to_start")]
+        ]
+        
+        await query.edit_message_text(
+            text,
+            parse_mode='HTML',
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+
+#Обработчик для выбора метода категорий
+async def handle_category_method_choice(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Обработчик выбора метода задания категорий"""
+    query = update.callback_query
+    await query.answer()
+    
+    user_id = update.effective_user.id
+    action = query.data
+    
+    logger.info(f"📝 CATEGORY METHOD | User: {user_id} | Method: {action}")
+    
+    if action == "cat_method_manual":
+        # Ручной ввод (существующая логика)
+        text = """
+🏷️ <b>Ввод категорий вручную</b>
 
 📝 <b>Введи категории</b> (каждая с новой строки):
 
@@ -222,7 +298,380 @@ async def handle_mode_selection(update: Update, context: ContextTypes.DEFAULT_TY
 • Чёткие названия
         """
         
+        context.user_data['category_method'] = 'manual'
         await query.edit_message_text(text, parse_mode='HTML')
+    
+    elif action == "cat_method_auto":
+        # Автогенерация
+        if not category_generator:
+            await query.edit_message_text(
+                "❌ <b>Автогенерация недоступна</b>\n\n"
+                "Требуется настройка YandexGPT API.",
+                parse_mode='HTML'
+            )
+            return
+        
+        context.user_data['category_method'] = 'auto'
+        
+        text = """
+🤖 <b>Автоматическая генерация категорий</b>
+
+📂 <b>Отправь CSV-файл с текстами</b>
+
+Я возьму выборку и сгенерирую категории через AI.
+
+📊 <b>Размер выборки:</b>
+• До 1000 строк: все тексты
+• 1000-5000: 500 случайных
+• 5000+: 1000 случайных
+
+⚙️ <b>Далее ты сможешь:</b>
+• Настроить промт (опционально)
+• Отредактировать категории
+• Перегенерировать при необходимости
+
+📎 Отправь файл (макс. 20 МБ, UTF-8)
+        """
+        
+        keyboard = [[InlineKeyboardButton("🔙 Назад", callback_data="mode_classification")]]
+        
+        await query.edit_message_text(
+            text,
+            parse_mode='HTML',
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+
+
+async def handle_prompt_customization_choice(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Обработчик выбора: настроить промт или использовать дефолтный"""
+    query = update.callback_query
+    await query.answer()
+    
+    user_id = update.effective_user.id
+    action = query.data
+    
+    logger.info(f"⚙️ PROMPT CHOICE | User: {user_id} | Action: {action}")
+    
+    if action == "use_default_gen_prompt":
+        # Использовать дефолтный промт генерации
+        context.user_data['custom_generation_prompt'] = None
+        await start_category_generation(update, context, query.message)
+    
+    elif action == "customize_gen_prompt":
+        # Показать дефолтный промт и попросить ввести свой
+        default_prompt = category_generator.DEFAULT_PROMPT
+        
+        text = f"""
+⚙️ <b>Настройка промта генерации</b>
+
+Промт определяет, как AI будет анализировать тексты.
+
+📝 <b>Стандартный промт:</b>
+<code>{default_prompt[:500]}...</code>
+
+<b>Отправь свой вариант промта</b> или нажми "Использовать стандартный".
+
+💡 <b>Что можно указать:</b>
+• Специфику домена (медицина, e-commerce и т.д.)
+• Желаемое количество категорий
+• Особые критерии (тональность, срочность)
+
+<b>Пример кастомизации:</b>
+<i>"Проанализируй отзывы на медицинские услуги. Предложи 6-8 категорий. Обязательно выдели отдельно жалобы на побочные эффекты."</i>
+        """
+        
+        keyboard = [
+            [InlineKeyboardButton("✅ Использовать стандартный", callback_data="use_default_gen_prompt")],
+            [InlineKeyboardButton("❌ Отмена", callback_data="mode_classification")]
+        ]
+        
+        context.user_data['awaiting_custom_prompt'] = 'generation'
+        
+        await query.edit_message_text(
+            text,
+            parse_mode='HTML',
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+    
+    elif action == "use_default_class_prompt":
+        # Дефолтный промт классификации
+        context.user_data['custom_classification_prompt'] = None
+        await proceed_to_classification_type(update, context, query.message)
+    
+    elif action == "customize_class_prompt":
+        # Кастомный промт классификации
+        default_prompt = prompt_manager.DEFAULT_CLASSIFICATION_PROMPT
+        
+        text = f"""
+⚙️ <b>Настройка промта классификации</b>
+
+Этот промт определяет, как AI будет распределять тексты по категориям.
+
+📝 <b>Стандартный промт:</b>
+<code>{default_prompt[:400]}...</code>
+
+<b>Отправь свой вариант</b> или используй стандартный.
+
+💡 <b>Что можно настроить:</b>
+• Строгость классификации
+• Правила для пограничных случаев
+• Специфику контекста
+
+<b>Пример:</b>
+<i>"При классификации медицинских отзывов учитывай серьёзность проблемы. Если есть упоминание боли или осложнений — приоритет категории 'Побочные эффекты'."</i>
+        """
+        
+        keyboard = [
+            [InlineKeyboardButton("✅ Использовать стандартный", callback_data="use_default_class_prompt")],
+            [InlineKeyboardButton("❌ Отмена", callback_data="mode_classification")]
+        ]
+        
+        context.user_data['awaiting_custom_prompt'] = 'classification'
+        
+        await query.edit_message_text(
+            text,
+            parse_mode='HTML',
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+
+
+async def start_category_generation(update: Update, context: ContextTypes.DEFAULT_TYPE, message):
+    """Запуск генерации категорий"""
+    user_id = update.effective_user.id
+    
+    # Получаем сохранённую выборку
+    sample_texts = context.user_data.get('sample_texts')
+    if not sample_texts:
+        await message.reply_text(
+            "❌ Ошибка: файл не найден. Начните заново с /start",
+            parse_mode='HTML'
+        )
+        return
+    
+    # Показываем прогресс
+    progress_msg = await message.reply_text(
+        "🔄 <b>Генерирую категории...</b>\n\n"
+        f"📊 Анализирую выборку: {len(sample_texts)} текстов\n"
+        "🤖 Отправляю запрос в YandexGPT...\n\n"
+        "⏱ Это займёт 10-30 секунд",
+        parse_mode='HTML'
+    )
+    
+    try:
+        custom_prompt = context.user_data.get('custom_generation_prompt')
+        
+        success, categories, error = category_generator.generate_categories(
+            sample_texts,
+            custom_prompt=custom_prompt
+        )
+        
+        if not success:
+            await progress_msg.edit_text(
+                f"❌ <b>Ошибка генерации</b>\n\n{error}\n\n"
+                "Попробуйте:\n"
+                "• Проверить настройки API\n"
+                "• Повторить через минуту\n"
+                "• Ввести категории вручную",
+                parse_mode='HTML'
+            )
+            return
+        
+        # Сохраняем сгенерированные категории
+        context.user_data['generated_categories'] = categories
+        
+        # Форматируем для показа
+        categories_text = category_generator.format_categories_for_display(categories)
+        
+        full_text = (
+            f"✅ <b>Категории сгенерированы!</b>\n\n"
+            f"Проанализировано текстов: {len(sample_texts)}\n\n"
+            f"{categories_text}"
+            f"<b>Что делать дальше?</b>"
+        )
+        
+        keyboard = [
+            [InlineKeyboardButton("✅ Использовать эти категории", callback_data="approve_generated_cats")],
+            [InlineKeyboardButton("✏️ Редактировать", callback_data="edit_generated_cats")],
+            [InlineKeyboardButton("🔄 Перегенерировать", callback_data="regenerate_cats")],
+            [InlineKeyboardButton("❌ Отмена", callback_data="back_to_start")]
+        ]
+        
+        await progress_msg.edit_text(
+            full_text,
+            parse_mode='HTML',
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+        
+    except Exception as e:
+        logger.error(f"Error in start_category_generation: {e}", exc_info=True)
+        await progress_msg.edit_text(
+            f"❌ Произошла ошибка при генерации категорий.\n\nПопробуйте еще раз или обратитесь к администратору.",
+            parse_mode='HTML'
+        )
+
+
+async def handle_generated_categories_action(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Обработчик действий с сгенерированными категориями"""
+    query = update.callback_query
+    await query.answer()
+    
+    user_id = update.effective_user.id
+    action = query.data
+    
+    logger.info(f"📋 GENERATED CATS ACTION | User: {user_id} | Action: {action}")
+    
+    if action == "approve_generated_cats":
+        # Утверждаем категории
+        categories = context.user_data.get('generated_categories', [])
+        if not categories:
+            await query.edit_message_text("❌ Ошибка: категории не найдены", parse_mode='HTML')
+            return
+        
+        # Преобразуем в формат для классификации
+        category_names = [cat.name for cat in categories]
+        category_descriptions = {cat.name: cat.description for cat in categories if cat.description}
+        
+        context.user_data['categories'] = category_names
+        context.user_data['descriptions'] = category_descriptions
+        
+        # Переходим к настройке промта классификации
+        text = """
+✅ <b>Категории сохранены!</b>
+
+⚙️ <b>Настроить промт для классификации?</b>
+
+Промт определяет, как AI будет распределять тексты по этим категориям.
+
+💡 Кастомизация нужна, если:
+• Специфичная предметная область
+• Важны особые критерии
+• Нужна строгая/мягкая классификация
+
+По умолчанию используется универсальный промт.
+        """
+        
+        keyboard = [
+            [InlineKeyboardButton("✅ Использовать стандартный", callback_data="use_default_class_prompt")],
+            [InlineKeyboardButton("⚙️ Настроить промт", callback_data="customize_class_prompt")]
+        ]
+        
+        await query.edit_message_text(
+            text,
+            parse_mode='HTML',
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+    
+    elif action == "edit_generated_cats":
+        # Редактирование категорий
+        categories = context.user_data.get('generated_categories', [])
+        
+        # Форматируем для редактирования
+        cats_text = "\n".join([f"{cat.name} | {cat.description}" for cat in categories])
+        
+        text = f"""
+✏️ <b>Редактирование категорий</b>
+
+Текущие категории:
+<code>{cats_text}</code>
+
+<b>Отправь отредактированный список:</b>
+
+Формат 1 (с описаниями):
+<code>Название 1 | Описание 1
+Название 2 | Описание 2</code>
+
+Формат 2 (без описаний):
+<code>Название 1
+Название 2</code>
+
+💡 Можешь:
+• Изменить названия
+• Убрать категории
+• Добавить новые
+• Уточнить описания
+        """
+        
+        context.user_data['awaiting_edited_categories'] = True
+        
+        keyboard = [[InlineKeyboardButton("❌ Отмена", callback_data="show_generated_cats_again")]]
+        
+        await query.edit_message_text(
+            text,
+            parse_mode='HTML',
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+    
+    elif action == "regenerate_cats":
+        # Перегенерировать
+        text = """
+🔄 <b>Перегенерация категорий</b>
+
+Хочешь изменить промт перед повторной генерацией?
+
+💡 Это полезно, если:
+• Категории слишком общие/специфичные
+• Не хватает/много категорий
+• Нужен другой фокус анализа
+        """
+        
+        keyboard = [
+            [InlineKeyboardButton("✅ Перегенерировать с тем же промтом", callback_data="use_default_gen_prompt")],
+            [InlineKeyboardButton("⚙️ Изменить промт", callback_data="customize_gen_prompt")],
+            [InlineKeyboardButton("❌ Отмена", callback_data="show_generated_cats_again")]
+        ]
+        
+        await query.edit_message_text(
+            text,
+            parse_mode='HTML',
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+    
+    elif action == "show_generated_cats_again":
+        # Показать категории снова (после отмены редактирования)
+        categories = context.user_data.get('generated_categories', [])
+        categories_text = category_generator.format_categories_for_display(categories)
+        
+        text = f"🏷️ <b>Сгенерированные категории:</b>\n\n{categories_text}\n<b>Что делать дальше?</b>"
+        
+        keyboard = [
+            [InlineKeyboardButton("✅ Использовать эти категории", callback_data="approve_generated_cats")],
+            [InlineKeyboardButton("✏️ Редактировать", callback_data="edit_generated_cats")],
+            [InlineKeyboardButton("🔄 Перегенерировать", callback_data="regenerate_cats")]
+        ]
+        
+        await query.edit_message_text(
+            text,
+            parse_mode='HTML',
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+
+
+async def proceed_to_classification_type(update: Update, context: ContextTypes.DEFAULT_TYPE, message):
+    """Переход к выбору типа классификации"""
+    categories = context.user_data.get('categories', [])
+    
+    categories_list = "\n".join([f"{i+1}. {cat}" for i, cat in enumerate(categories)])
+    
+    text = f"""
+✅ <b>Готово к классификации!</b>
+
+<b>Категории ({len(categories)}):</b>
+{categories_list}
+
+<b>Выбери режим:</b>
+    """
+    
+    keyboard = [
+        [InlineKeyboardButton("📋 Обычная классификация", callback_data="class_normal")],
+        [InlineKeyboardButton("📊 Оценка качества", callback_data="class_eval")]
+    ]
+    
+    await message.reply_text(
+        text,
+        parse_mode='HTML',
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
+
 
 
 async def handle_categories_input(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -230,6 +679,82 @@ async def handle_categories_input(update: Update, context: ContextTypes.DEFAULT_
     if context.user_data.get('mode') != 'classification':
         return
     
+    # Проверка на кастомный промт
+    if context.user_data.get('awaiting_custom_prompt'):
+        prompt_type = context.user_data['awaiting_custom_prompt']
+        
+        if prompt_type == 'generation':
+            context.user_data['custom_generation_prompt'] = text
+            del context.user_data['awaiting_custom_prompt']
+            
+            await update.message.reply_text(
+                "✅ Промт сохранён!\n\n🔄 Начинаю генерацию категорий...",
+                parse_mode='HTML'
+            )
+            
+            await start_category_generation(update, context, update.message)
+            return
+        
+        elif prompt_type == 'classification':
+            prompt_manager.set_classification_prompt(user_id, text)
+            context.user_data['custom_classification_prompt'] = text
+            del context.user_data['awaiting_custom_prompt']
+            
+            await update.message.reply_text(
+                "✅ Промт классификации сохранён!",
+                parse_mode='HTML'
+            )
+            
+            await proceed_to_classification_type(update, context, update.message)
+            return
+    
+    # Проверка на редактирование сгенерированных категорий
+    if context.user_data.get('awaiting_edited_categories'):
+        del context.user_data['awaiting_edited_categories']
+        
+        # Парсим отредактированные категории
+        categories = parse_categories_from_text(text)
+        is_valid, error_msg = validate_categories(categories)
+        
+        if not is_valid:
+            await update.message.reply_text(
+                f"❌ <b>Ошибка:</b> {error_msg}\n\nПопробуйте еще раз.",
+                parse_mode='HTML'
+            )
+            return
+        
+        context.user_data['categories'] = categories
+        context.user_data['descriptions'] = None
+        
+        categories_list = "\n".join([f"{i+1}. {cat}" for i, cat in enumerate(categories)])
+        
+        await update.message.reply_text(
+            f"✅ <b>Категории обновлены ({len(categories)}):</b>\n\n{categories_list}",
+            parse_mode='HTML'
+        )
+        
+        # Переход к настройке промта классификации
+        text_msg = """
+⚙️ <b>Настроить промт для классификации?</b>
+
+По умолчанию используется стандартный промт.
+        """
+        
+        keyboard = [
+            [InlineKeyboardButton("✅ Стандартный", callback_data="use_default_class_prompt")],
+            [InlineKeyboardButton("⚙️ Настроить", callback_data="customize_class_prompt")]
+        ]
+        
+        await update.message.reply_text(
+            text_msg,
+            parse_mode='HTML',
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+        return
+    
+    # Далее существующая логика handle_categories_input...
+
+
     text = update.message.text
     user_id = update.effective_user.id
     
@@ -550,6 +1075,77 @@ async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             return
         
+        # Проверка: это файл для автогенерации категорий?
+        if context.user_data.get('category_method') == 'auto' and context.user_data.get('mode') == 'classification':
+            # Режим автогенерации категорий
+            logger.info(f"📊 AUTO-GENERATION MODE | User: {user_id}")
+            
+            progress_msg = await update.message.reply_text(
+                "⏳ <b>Загружаю файл...</b>",
+                parse_mode='HTML'
+            )
+            
+            try:
+                # Загружаем файл
+                file = await update.message.document.get_file()
+                file_path = f"/tmp/{file.file_unique_id}.csv"
+                await file.download_to_drive(file_path)
+                
+                # Читаем CSV
+                df = pd.read_csv(file_path, encoding='utf-8', dtype=str)
+                texts = df.iloc[:, 0].astype(str).tolist()
+                
+                if len(texts) < 10:
+                    await progress_msg.edit_text(
+                        "❌ <b>Слишком мало текстов</b>\n\n"
+                        "Для генерации категорий нужно минимум 10 текстов.",
+                        parse_mode='HTML'
+                    )
+                    cleanup_file_safe(file_path)
+                    return
+                
+                # Получаем выборку
+                sample = category_generator.get_sample(texts)
+                context.user_data['sample_texts'] = sample
+                context.user_data['full_file_path'] = file_path  # Сохраним на потом
+                
+                # Спрашиваем про промт
+                text = f"""
+✅ <b>Файл загружен!</b>
+
+📊 Найдено текстов: {len(texts)}
+📦 Выборка для анализа: {len(sample)}
+
+⚙️ <b>Настроить промт для генерации категорий?</b>
+
+Стандартный промт подходит для большинства задач.
+Кастомизация нужна для специфичных доменов.
+                """
+                
+                keyboard = [
+                    [InlineKeyboardButton("✅ Использовать стандартный", callback_data="use_default_gen_prompt")],
+                    [InlineKeyboardButton("⚙️ Настроить промт", callback_data="customize_gen_prompt")],
+                    [InlineKeyboardButton("❌ Отмена", callback_data="back_to_start")]
+                ]
+                
+                await progress_msg.edit_text(
+                    text,
+                    parse_mode='HTML',
+                    reply_markup=InlineKeyboardMarkup(keyboard)
+                )
+                
+                return  # Прерываем обычную обработку
+                
+            except Exception as e:
+                logger.error(f"Error loading file for auto-generation: {e}", exc_info=True)
+                await progress_msg.edit_text(
+                    "❌ Ошибка чтения файла.\n\nПроверьте формат (CSV, UTF-8).",
+                    parse_mode='HTML'
+                )
+                cleanup_file_safe(file_path)
+                return
+
+
         # Шаг 1: Загрузка файла
         progress_msg = await update.message.reply_text(
             "⏳ <b>Начинаю обработку...</b>",
@@ -1492,6 +2088,22 @@ def main():
     application.add_handler(CommandHandler("feedback", feedback_command))
     application.add_handler(CommandHandler("stats", stats_command))
     from telegram.ext import CallbackQueryHandler
+    # Обработчики для автогенерации категорий
+    application.add_handler(CallbackQueryHandler(
+        handle_category_method_choice,
+        pattern="^cat_method_"
+    ))
+    
+    application.add_handler(CallbackQueryHandler(
+        handle_prompt_customization_choice,
+        pattern="^use_default_|^customize_"
+    ))
+    
+    application.add_handler(CallbackQueryHandler(
+        handle_generated_categories_action,
+pattern="^approve_generated_cats$|^edit_generated_cats$|^regenerate_cats$|^show_generated_cats_again$"
+    ))
+
     application.add_handler(CallbackQueryHandler(handle_mode_selection, pattern="^mode_|^show_help$|^back_to_start$"))
     application.add_handler(CallbackQueryHandler(handle_pdf_request, pattern="^pdf_"))
     application.add_handler(CallbackQueryHandler(handle_insight_request, pattern="^insight_"))
