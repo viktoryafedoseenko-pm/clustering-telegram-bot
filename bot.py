@@ -652,14 +652,41 @@ async def proceed_to_classification_type(update: Update, context: ContextTypes.D
     
     categories_list = "\n".join([f"{i+1}. {cat}" for i, cat in enumerate(categories)])
     
-    text = f"""
+    # Проверяем, есть ли уже загруженный файл (для автогенерации)
+    has_file = bool(context.user_data.get('full_file_path'))
+    
+    if has_file:
+        text = f"""
 ✅ <b>Готово к классификации!</b>
 
 <b>Категории ({len(categories)}):</b>
 {categories_list}
 
+📎 <b>Файл уже загружен</b>
+
 <b>Выбери режим:</b>
-    """
+
+📋 <b>Обычная классификация</b>
+AI распределит тексты по категориям
+
+📊 <b>Оценка качества</b>
+Проверка качества классификации (нужен файл с правильными ответами)
+        """
+    else:
+        text = f"""
+✅ <b>Категории сохранены!</b>
+
+<b>Категории ({len(categories)}):</b>
+{categories_list}
+
+<b>Выбери режим:</b>
+
+📋 <b>Обычная классификация</b>
+Загрузишь файл → AI распределит тексты
+
+📊 <b>Оценка качества</b>
+Проверка качества на размеченных данных
+        """
     
     keyboard = [
         [InlineKeyboardButton("📋 Обычная классификация", callback_data="class_normal")],
@@ -676,19 +703,23 @@ async def proceed_to_classification_type(update: Update, context: ContextTypes.D
 
 async def handle_categories_input(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Обработчик ввода категорий"""
-    if context.user_data.get('mode') != 'classification':
-        return
+    text = update.message.text
+    user_id = update.effective_user.id
     
-    # Проверка на кастомный промт
+    logger.info(f"📝 TEXT INPUT | User: {user_id} | Mode: {context.user_data.get('mode')}")
+    
+    # ПРИОРИТЕТ 1: Проверка на кастомный промт (НОВОЕ - было в предыдущем плане, но не сработало)
     if context.user_data.get('awaiting_custom_prompt'):
         prompt_type = context.user_data['awaiting_custom_prompt']
+        
+        logger.info(f"📝 CUSTOM PROMPT RECEIVED | User: {user_id} | Type: {prompt_type}")
         
         if prompt_type == 'generation':
             context.user_data['custom_generation_prompt'] = text
             del context.user_data['awaiting_custom_prompt']
             
             await update.message.reply_text(
-                "✅ Промт сохранён!\n\n🔄 Начинаю генерацию категорий...",
+                "✅ <b>Промт сохранён!</b>\n\n🔄 Начинаю генерацию категорий...",
                 parse_mode='HTML'
             )
             
@@ -701,15 +732,17 @@ async def handle_categories_input(update: Update, context: ContextTypes.DEFAULT_
             del context.user_data['awaiting_custom_prompt']
             
             await update.message.reply_text(
-                "✅ Промт классификации сохранён!",
+                "✅ <b>Промт классификации сохранён!</b>",
                 parse_mode='HTML'
             )
             
             await proceed_to_classification_type(update, context, update.message)
             return
     
-    # Проверка на редактирование сгенерированных категорий
+    # ПРИОРИТЕТ 2: Проверка на редактирование сгенерированных категорий
     if context.user_data.get('awaiting_edited_categories'):
+        logger.info(f"📝 EDITED CATEGORIES | User: {user_id}")
+        
         del context.user_data['awaiting_edited_categories']
         
         # Парсим отредактированные категории
@@ -718,7 +751,8 @@ async def handle_categories_input(update: Update, context: ContextTypes.DEFAULT_
         
         if not is_valid:
             await update.message.reply_text(
-                f"❌ <b>Ошибка:</b> {error_msg}\n\nПопробуйте еще раз.",
+                f"❌ <b>Ошибка:</b> {error_msg}\n\n"
+                "Попробуйте еще раз или /start для отмены.",
                 parse_mode='HTML'
             )
             return
@@ -737,12 +771,15 @@ async def handle_categories_input(update: Update, context: ContextTypes.DEFAULT_
         text_msg = """
 ⚙️ <b>Настроить промт для классификации?</b>
 
-По умолчанию используется стандартный промт.
+Промт — это инструкция для AI, как распределять тексты.
+
+По умолчанию используется универсальный промт.
+Кастомизация нужна для специфичных задач.
         """
         
         keyboard = [
-            [InlineKeyboardButton("✅ Стандартный", callback_data="use_default_class_prompt")],
-            [InlineKeyboardButton("⚙️ Настроить", callback_data="customize_class_prompt")]
+            [InlineKeyboardButton("✅ Использовать стандартный", callback_data="use_default_class_prompt")],
+            [InlineKeyboardButton("⚙️ Настроить промт", callback_data="customize_class_prompt")]
         ]
         
         await update.message.reply_text(
@@ -752,14 +789,23 @@ async def handle_categories_input(update: Update, context: ContextTypes.DEFAULT_
         )
         return
     
-    # Далее существующая логика handle_categories_input...
-
-
-    text = update.message.text
-    user_id = update.effective_user.id
+    # ПРИОРИТЕТ 3: Обычный ввод категорий (существующая логика)
+    if context.user_data.get('mode') != 'classification':
+        logger.info(f"⚠️ TEXT INPUT IGNORED | User: {user_id} | Not in classification mode")
+        return
     
-    logger.info(f"📝 CATEGORIES INPUT | User: {user_id}")
+    # Проверка, что не ждём файл для автогенерации
+    if context.user_data.get('category_method') == 'auto':
+        await update.message.reply_text(
+            "⚠️ <b>Ожидается файл, а не текст</b>\n\n"
+            "Отправьте CSV-файл для генерации категорий.",
+            parse_mode='HTML'
+        )
+        return
     
+    logger.info(f"📝 MANUAL CATEGORIES INPUT | User: {user_id}")
+    
+    # Далее существующая логика парсинга категорий...
     categories = parse_categories_from_text(text)
     is_valid, error_msg = validate_categories(categories)
     
@@ -789,6 +835,7 @@ async def handle_categories_input(update: Update, context: ContextTypes.DEFAULT_
         reply_markup=reply_markup,
         parse_mode='HTML'
     )
+
 
 async def handle_classification_mode_choice(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Обработчик выбора режима классификации (обычная/оценка)"""
