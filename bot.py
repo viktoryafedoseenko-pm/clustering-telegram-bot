@@ -533,6 +533,8 @@ async def handle_generated_categories_action(update: Update, context: ContextTyp
         
         context.user_data['categories'] = category_names
         context.user_data['descriptions'] = category_descriptions
+
+        logger.info(f"✅ CATEGORIES APPROVED | User: {user_id} | Resetting category_method flag")
         
         # Переходим к настройке промта классификации
         text = """
@@ -836,7 +838,6 @@ async def handle_categories_input(update: Update, context: ContextTypes.DEFAULT_
         parse_mode='HTML'
     )
 
-
 async def handle_classification_mode_choice(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Обработчик выбора режима классификации (обычная/оценка)"""
     query = update.callback_query
@@ -850,15 +851,70 @@ async def handle_classification_mode_choice(update: Update, context: ContextType
     if action == "class_normal":
         context.user_data['eval_mode'] = False
         
+        # Проверяем, есть ли уже файл
+        if context.user_data.get('full_file_path'):
+            logger.info(f"📋 CLASSIFICATION WITH EXISTING FILE | User: {user_id}")
+            
+            # Используем уже загруженный файл
+            file_path = context.user_data['full_file_path']
+            
+            # Показываем прогресс
+            progress_msg = await query.message.reply_text(
+                "🔄 <b>Запускаю классификацию...</b>\n\n"
+                "Использую уже загруженный файл.",
+                parse_mode='HTML'
+            )
+            
+            try:
+                # Читаем файл
+                df = pd.read_csv(file_path, encoding='utf-8', dtype=str)
+                filename = context.user_data.get('original_filename', 'classified.csv')
+                
+                logger.info(f"📊 FILE LOADED | Rows: {len(df)} | Filename: {filename}")
+                
+                # Создаём tracker
+                from progress_tracker import ProgressTracker
+                tracker = ProgressTracker(progress_msg, min_interval=3.0)
+                
+                # Запускаем классификацию
+                await process_classification_mode(
+                    update, context, df, file_path, 
+                    filename, tracker, progress_msg
+                )
+                
+                # ⭐ ВАЖНО: Очищаем сохранённые данные после успешной классификации
+                context.user_data.pop('full_file_path', None)
+                context.user_data.pop('sample_texts', None)
+                context.user_data.pop('category_method', None)  # ⭐ КЛЮЧЕВОЕ ИСПРАВЛЕНИЕ
+                context.user_data.pop('original_filename', None)
+                
+                logger.info(f"✅ CLASSIFICATION COMPLETE | User: {user_id}")
+                
+            except Exception as e:
+                logger.error(f"❌ Error in classification with existing file: {e}", exc_info=True)
+                await progress_msg.edit_text(
+                    "❌ <b>Ошибка классификации</b>\n\n"
+                    "Попробуйте загрузить файл заново или обратитесь к администратору.",
+                    parse_mode='HTML'
+                )
+            
+            return  # ⭐ ОБЯЗАТЕЛЬНО! Прерываем выполнение функции
+        
+        # ⭐ Если файла НЕТ — просим загрузить
+        logger.info(f"📋 NO FILE FOUND | User: {user_id} | Requesting file upload")
+        
         text = (
             "📋 <b>Обычная классификация</b>\n\n"
-            "📎 Отправь CSV-файл с текстами:\n"
+            "📎 <b>Отправь CSV-файл с текстами:</b>\n"
             "• Одна колонка с текстами\n"
             "• Кодировка UTF-8\n"
             "• Макс. 10,000 строк\n\n"
             "⏱ Время: ~1-2 сек на текст"
         )
         
+        await query.edit_message_text(text, parse_mode='HTML')
+        return  # ⭐ И здесь тоже return
+    
     elif action == "class_eval":
         context.user_data['eval_mode'] = True
         
@@ -877,8 +933,9 @@ async def handle_classification_mode_choice(update: Update, context: ContextType
             f"<b>Ожидаемые категории:</b>\n{categories_list}\n\n"
             "⚠️ Категории в файле должны точно совпадать с введёнными"
         )
-    
-    await query.edit_message_text(text, parse_mode='HTML')
+        
+        await query.edit_message_text(text, parse_mode='HTML')
+        return  # ⭐ И здесь
 
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1068,6 +1125,16 @@ async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         logger.info(f"📥 NEW FILE | User: {user_id} (@{username}) | File: {file_name}")
 
+        # ⭐ ДЕБАГ: Логируем состояние context.user_data
+        logger.info(
+            f"📊 CONTEXT STATE | User: {user_id} | "
+            f"mode={context.user_data.get('mode')} | "
+            f"category_method={context.user_data.get('category_method')} | "
+            f"has_categories={'categories' in context.user_data} | "
+            f"has_file={'full_file_path' in context.user_data} | "
+            f"eval_mode={context.user_data.get('eval_mode')}"
+        )
+
         # Rate Limiting проверка
         allowed, remaining, wait_time = rate_limiter.is_allowed(user_id)
         
@@ -1123,12 +1190,19 @@ async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
         
         # Проверка: это файл для автогенерации категорий?
-        if context.user_data.get('category_method') == 'auto' and context.user_data.get('mode') == 'classification':
-            # Режим автогенерации категорий
+        # Важно: проверяем, что категории ещё НЕ сгенерированы
+        is_auto_generation = (
+            context.user_data.get('category_method') == 'auto' 
+            and context.user_data.get('mode') == 'classification'
+            and 'categories' not in context.user_data  # ⭐ КЛЮЧЕВАЯ ПРОВЕРКА
+        )
+        
+        if is_auto_generation:
+            # Режим автогенерации категорий (ПЕРВАЯ загрузка)
             logger.info(f"📊 AUTO-GENERATION MODE | User: {user_id}")
             
             progress_msg = await update.message.reply_text(
-                "⏳ <b>Загружаю файл...</b>",
+                "⏳ <b>Загружаю файл для генерации категорий...</b>",
                 parse_mode='HTML'
             )
             
@@ -1154,7 +1228,10 @@ async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 # Получаем выборку
                 sample = category_generator.get_sample(texts)
                 context.user_data['sample_texts'] = sample
-                context.user_data['full_file_path'] = file_path  # Сохраним на потом
+                context.user_data['full_file_path'] = file_path
+                context.user_data['original_filename'] = update.message.document.file_name
+                
+                logger.info(f"✅ FILE SAVED | Path: {file_path} | Sample: {len(sample)} texts")
                 
                 # Спрашиваем про промт
                 text = f"""
@@ -1181,16 +1258,23 @@ async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     reply_markup=InlineKeyboardMarkup(keyboard)
                 )
                 
-                return  # Прерываем обычную обработку
+                return  # ⭐ ОБЯЗАТЕЛЬНО! Прерываем обычную обработку файла
                 
             except Exception as e:
-                logger.error(f"Error loading file for auto-generation: {e}", exc_info=True)
+                logger.error(f"❌ Error loading file for auto-generation: {e}", exc_info=True)
                 await progress_msg.edit_text(
                     "❌ Ошибка чтения файла.\n\nПроверьте формат (CSV, UTF-8).",
                     parse_mode='HTML'
                 )
                 cleanup_file_safe(file_path)
                 return
+        
+        # ⭐ Если категории УЖЕ есть, но файл загружается снова — это классификация
+        if context.user_data.get('mode') == 'classification' and 'categories' in context.user_data:
+            logger.info(f"📋 CLASSIFICATION FILE UPLOADED | User: {user_id}")
+            # Дальше идёт обычная обработка классификации
+            # НЕ прерываем, пусть идёт дальше в код
+
 
 
         # Шаг 1: Загрузка файла
