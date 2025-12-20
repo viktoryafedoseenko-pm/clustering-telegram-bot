@@ -858,6 +858,21 @@ async def handle_classification_mode_choice(update: Update, context: ContextType
             # Используем уже загруженный файл
             file_path = context.user_data['full_file_path']
             
+            # ⭐ Проверяем, что файл существует
+            import os
+            if not os.path.exists(file_path):
+                logger.error(f"❌ FILE NOT FOUND | Path: {file_path}")
+                await query.message.reply_text(
+                    "❌ <b>Ошибка: файл не найден</b>\n\n"
+                    "Пожалуйста, загрузите файл заново.",
+                    parse_mode='HTML'
+                )
+                # Очищаем несуществующий путь
+                context.user_data.pop('full_file_path', None)
+                context.user_data.pop('sample_texts', None)
+                context.user_data.pop('original_filename', None)
+                return
+            
             # Показываем прогресс
             progress_msg = await query.message.reply_text(
                 "🔄 <b>Запускаю классификацию...</b>\n\n"
@@ -882,25 +897,39 @@ async def handle_classification_mode_choice(update: Update, context: ContextType
                     filename, tracker, progress_msg
                 )
                 
-                # ⭐ ВАЖНО: Очищаем сохранённые данные после успешной классификации
+                # ⭐ ВАЖНО: Удаляем файл ПОСЛЕ успешной классификации
+                cleanup_file_safe(file_path)
+                logger.info(f"🗑️ TEMP FILE DELETED | Path: {file_path}")
+                
+                # Очищаем сохранённые данные
                 context.user_data.pop('full_file_path', None)
                 context.user_data.pop('sample_texts', None)
-                context.user_data.pop('category_method', None)  # ⭐ КЛЮЧЕВОЕ ИСПРАВЛЕНИЕ
+                context.user_data.pop('category_method', None)
                 context.user_data.pop('original_filename', None)
                 
                 logger.info(f"✅ CLASSIFICATION COMPLETE | User: {user_id}")
                 
             except Exception as e:
                 logger.error(f"❌ Error in classification with existing file: {e}", exc_info=True)
+                
+                # Удаляем файл даже при ошибке
+                cleanup_file_safe(file_path)
+                
                 await progress_msg.edit_text(
                     "❌ <b>Ошибка классификации</b>\n\n"
                     "Попробуйте загрузить файл заново или обратитесь к администратору.",
                     parse_mode='HTML'
                 )
+                
+                # Очищаем данные
+                context.user_data.pop('full_file_path', None)
+                context.user_data.pop('sample_texts', None)
+                context.user_data.pop('category_method', None)
+                context.user_data.pop('original_filename', None)
             
-            return  # ⭐ ОБЯЗАТЕЛЬНО! Прерываем выполнение функции
+            return
         
-        # ⭐ Если файла НЕТ — просим загрузить
+        # Если файла НЕТ — просим загрузить
         logger.info(f"📋 NO FILE FOUND | User: {user_id} | Requesting file upload")
         
         text = (
@@ -913,12 +942,12 @@ async def handle_classification_mode_choice(update: Update, context: ContextType
         )
         
         await query.edit_message_text(text, parse_mode='HTML')
-        return  # ⭐ И здесь тоже return
+        return
     
     elif action == "class_eval":
         context.user_data['eval_mode'] = True
         
-        categories = context.user_data['categories']
+        categories = context.user_data.get('categories', [])
         categories_list = "\n".join([f"• {cat}" for cat in categories])
         
         text = (
@@ -935,7 +964,7 @@ async def handle_classification_mode_choice(update: Update, context: ContextType
         )
         
         await query.edit_message_text(text, parse_mode='HTML')
-        return  # ⭐ И здесь
+        return
 
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1190,7 +1219,6 @@ async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
         
         # Проверка: это файл для автогенерации категорий?
-        # Важно: проверяем, что категории ещё НЕ сгенерированы
         is_auto_generation = (
             context.user_data.get('category_method') == 'auto' 
             and context.user_data.get('mode') == 'classification'
@@ -1258,7 +1286,7 @@ async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     reply_markup=InlineKeyboardMarkup(keyboard)
                 )
                 
-                return  # ⭐ ОБЯЗАТЕЛЬНО! Прерываем обычную обработку файла
+                return 
                 
             except Exception as e:
                 logger.error(f"❌ Error loading file for auto-generation: {e}", exc_info=True)
