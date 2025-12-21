@@ -1679,38 +1679,80 @@ async def process_classification_mode(
     user_id = update.effective_user.id
     categories = context.user_data['categories']
     descriptions = context.user_data.get('descriptions')
-    eval_mode = context.user_data.get('eval_mode', False)  # НОВОЕ
+    eval_mode = context.user_data.get('eval_mode', False)
+    
+    # ⭐ ТОЛЬКО ЗДЕСЬ определяем message
+    if update.callback_query:
+        message = update.callback_query.message
+    else:
+        message = update.message
+    
+    logger.info(
+        f"🏷️ CLASSIFICATION START | User: {user_id} | "
+        f"Texts: {len(df)} | Categories: {len(categories)} | Eval: {eval_mode}"
+    )
+    
+    # Фильтрация мусорных данных
+    original_count = len(df)
     
     # Если режим оценки - валидируем файл
     if eval_mode:
         is_valid, error_msg = validate_ground_truth(df, categories)
         if not is_valid:
-            # НЕ редактируй progress_msg, а отправь новое сообщение
             try:
                 await progress_msg.delete()
             except:
                 pass
             
-            await update.message.reply_text(
+            await message.reply_text(
                 f"❌ <b>Ошибка в файле:</b>\n\n{error_msg}",
                 parse_mode='HTML'
             )
             return
         
-        # Извлекаем тексты и ground truth
         texts = df.iloc[:, 0].astype(str).tolist()
         ground_truth = df.iloc[:, 1].astype(str).tolist()
     else:
-        # Обычная классификация
+        # Обычная классификация - фильтруем
+        df = df[df.iloc[:, 0].notna()]
+        df = df[df.iloc[:, 0].astype(str).str.strip() != '']
+        
+        texts_series = df.iloc[:, 0].astype(str)
+        
+        mask = (
+            ~texts_series.str.startswith('/') &
+            ~texts_series.str.endswith(('.png', '.jpg', '.pdf', '.jpeg', '.gif')) &
+            (texts_series.str.len() > 5)
+        )
+        
+        df = df[mask]
+        df = df.reset_index(drop=True)
+        
+        filtered_count = len(df)
+        
+        if filtered_count == 0:
+            try:
+                await progress_msg.delete()
+            except:
+                pass
+            
+            await message.reply_text(
+                "❌ <b>Нет данных для классификации</b>\n\n"
+                "После фильтрации не осталось корректных текстов.",
+                parse_mode='HTML'
+            )
+            return
+        
+        if filtered_count < original_count:
+            logger.info(
+                f"🧹 FILTERED | Original: {original_count} | "
+                f"After: {filtered_count} | Removed: {original_count - filtered_count}"
+            )
+        
         texts = df.iloc[:, 0].astype(str).tolist()
         ground_truth = None
     
     n_texts = len(texts)
-    
-    logger.info(
-        f"🏷️ CLASSIFICATION START | User: {user_id} | "
-        f"Texts: {n_texts} | Categories: {len(categories)} | Eval: {eval_mode}"
-    )
     
     try:
         await tracker.update(
@@ -1720,7 +1762,6 @@ async def process_classification_mode(
             force=True
         )
         
-        # Callback для прогресса
         async def classification_progress(progress: float, current: int, total: int):
             if current % 5 == 0 or current == total:
                 await tracker.update(
@@ -1729,7 +1770,6 @@ async def process_classification_mode(
                     details=f"Осталось ~{(total-current)*1.5//60} мин"
                 )
         
-        # Запуск классификации
         result_df = classifier.classify_batch(
             texts,
             categories,
@@ -1741,33 +1781,26 @@ async def process_classification_mode(
         
         await tracker.update(stage="💾 Сохранение результатов", percent=95)
         
-        # Сохранение результата
         result_path = f"/tmp/{user_id}_classified_{filename}"
         result_df.to_csv(result_path, index=False, encoding='utf-8')
         
         logger.info(f"✅ CLASSIFICATION COMPLETE | User: {user_id} | Texts: {n_texts}")
         
         if eval_mode:
-            # Режим оценки - добавляем ground truth в результат
             result_df['true_category'] = ground_truth
             result_df['correct'] = result_df['category'] == result_df['true_category']
             
-            # Рассчитываем метрики
             metrics = calculate_metrics(
                 y_true=ground_truth,
                 y_pred=result_df['category'].tolist(),
                 categories=categories
             )
             
-            # Получаем примеры ошибок
             examples = get_error_examples(result_df, n=3)
-            
-            # Форматируем отчёт
             stats_msg = format_evaluation_report(metrics, examples, categories)
             stats_msg += "\n\n✨ CSV-файл с результатами прикреплён ниже"
             
         else:
-            # Обычный режим - существующая логика
             sorted_cats = sorted(
                 stats['categories'].items(),
                 key=lambda x: x[1]['count'],
@@ -1795,39 +1828,34 @@ async def process_classification_mode(
 
         await tracker.complete("✅ Классификация завершена!")
         
-        # Удаляем прогресс
         try:
             await progress_msg.delete()
         except:
             pass
         
-        # Отправляем результат
         with open(result_path, 'rb') as result_file:
-            await update.message.reply_document(
+            await message.reply_document(
                 document=result_file,
                 filename=f"classified_{filename}",
                 caption=stats_msg,
                 parse_mode='HTML'
             )
         
-        # Очистка
         cleanup_file_safe(result_path)
         
     except Exception as e:
         logger.error(f"❌ CLASSIFICATION ERROR | User: {user_id} | Error: {str(e)}", exc_info=True)
         
-        # НЕ редактируй progress_msg, а отправь новое сообщение
         try:
             await progress_msg.delete()
         except:
             pass
         
-        await update.message.reply_text(
+        await message.reply_text(
             f"❌ <b>Ошибка классификации</b>\n\n"
             f"Попробуйте еще раз или обратитесь к администратору.",
             parse_mode='HTML'
         )
-
 
 
 def format_statistics(stats):
