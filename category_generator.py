@@ -5,6 +5,8 @@ import json
 from typing import List, Optional, Tuple
 from dataclasses import dataclass
 import requests
+import html
+import re
 
 logger = logging.getLogger(__name__)
 
@@ -144,14 +146,26 @@ class CategoryGenerator:
                 if not categories_data:
                     return False, None, "API не вернул категории"
                 
+                # ⭐ Функция очистки HTML-тегов
+                def clean_html(text: str) -> str:
+                    """Удаляет HTML-теги, оставляет текст"""
+                    if not text:
+                        return ""
+                    # Удаляем HTML-теги
+                    import re
+                    text = re.sub(r'<br\s*/?>', '\n', text)  # <br> → перенос строки
+                    text = re.sub(r'<[^>]+>', '', text)  # Удаляем остальные теги
+                    return text.strip()
+                
                 # Преобразуем в CategorySuggestion
                 categories = []
                 for cat in categories_data:
                     categories.append(CategorySuggestion(
-                        name=cat.get('name', 'Без названия'),
-                        description=cat.get('description', ''),
-                        examples=cat.get('examples', [])[:3]  # Макс 3 примера
+                        name=clean_html(cat.get('name', 'Без названия')),
+                        description=clean_html(cat.get('description', '')),
+                        examples=[clean_html(ex) for ex in cat.get('examples', [])[:3]]
                     ))
+
                 
                 logger.info(f"✅ Generated {len(categories)} categories")
                 return True, categories, None
@@ -168,19 +182,30 @@ class CategoryGenerator:
             logger.error(f"Category generation error: {e}", exc_info=True)
             return False, None, f"Ошибка: {str(e)}"
     
-    def format_categories_for_display(self, categories: List[CategorySuggestion]) -> str:
-        """Форматирование для показа пользователю"""
-        msg = f"🏷️ <b>Предложенные категории ({len(categories)}):</b>\n\n"
+def format_categories_for_display(self, categories: List[CategorySuggestion]) -> str:
+    """Форматирование для показа пользователю"""
+    msg = f"🏷️ <b>Предложенные категории ({len(categories)}):</b>\n\n"
+    
+    for i, cat in enumerate(categories, 1):
+        emoji = ["1️⃣", "2️⃣", "3️⃣", "4️⃣", "5️⃣", "6️⃣", "7️⃣", "8️⃣", "9️⃣", "🔟"][i-1] if i <= 10 else "▪️"
         
-        for i, cat in enumerate(categories, 1):
-            emoji = ["1️⃣", "2️⃣", "3️⃣", "4️⃣", "5️⃣", "6️⃣", "7️⃣", "8️⃣", "9️⃣", "🔟"][i-1] if i <= 10 else "▪️"
-            
-            msg += f"{emoji} <b>{cat.name}</b>\n"
-            if cat.description:
-                msg += f"   <i>{cat.description}</i>\n"
-            if cat.examples:
-                examples_str = "; ".join([ex[:50] for ex in cat.examples[:2]])
-                msg += f"   💬 Примеры: {examples_str}\n"
-            msg += "\n"
+        # ⭐ Экранируем HTML-теги в названии и описании
+        safe_name = html.escape(cat.name).replace('<br/>', '\n').replace('<br>', '\n')
         
-        return msg
+        msg += f"{emoji} <b>{safe_name}</b>\n"
+        
+        if cat.description:
+            # ⭐ Очищаем описание от HTML-тегов
+            safe_desc = html.escape(cat.description).replace('<br/>', '\n').replace('<br>', '\n')
+            msg += f"   <i>{safe_desc}</i>\n"
+        
+        if cat.examples:
+            # ⭐ Экранируем примеры
+            safe_examples = [html.escape(ex[:50]) for ex in cat.examples[:2]]
+            examples_str = "; ".join(safe_examples)
+            msg += f"   💬 Примеры: {examples_str}\n"
+        
+        msg += "\n"
+    
+    return msg
+
