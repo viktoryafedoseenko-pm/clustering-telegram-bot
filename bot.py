@@ -226,7 +226,7 @@ async def handle_quiz_q1(update: Update, context: ContextTypes.DEFAULT_TYPE):
         [InlineKeyboardButton("Да, знаю категории", callback_data="quiz_q2_yes")],
         [InlineKeyboardButton("Нет, не знаю", callback_data="quiz_q2_no")],
         [InlineKeyboardButton("Есть идеи, но не уверен", callback_data="quiz_q2_maybe")],
-        [InlineKeyboardButton("🔙 Назад", callback_data="show_quiz")]
+        [InlineKeyboardButton("🔙 Назад", callback_data="quiz_back_to_q1")]
     ]
     
     await query.edit_message_text(
@@ -255,7 +255,7 @@ async def handle_quiz_q2(update: Update, context: ContextTypes.DEFAULT_TYPE):
         [InlineKeyboardButton("Разовая (первый раз)", callback_data="quiz_q3_once")],
         [InlineKeyboardButton("Регулярная (каждую неделю/месяц)", callback_data="quiz_q3_regular")],
         [InlineKeyboardButton("Не знаю", callback_data="quiz_q3_dunno")],
-        [InlineKeyboardButton("🔙 Назад", callback_data="quiz_q1_" + context.user_data['quiz_answers']['q1_size'])]
+        [InlineKeyboardButton("🔙 Назад", callback_data="quiz_back_to_q2")]
     ]
     
     await query.edit_message_text(
@@ -265,11 +265,66 @@ async def handle_quiz_q2(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 
+async def handle_quiz_back(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Обработчик кнопки 'Назад' в квизе"""
+    query = update.callback_query
+    await query.answer()
+    
+    action = query.data
+    
+    if action == "quiz_back_to_q1":
+        # Возвращаемся к вопросу 1 (повторяем логику из show_quiz)
+        text = """
+❓ <b>Квиз: Какой режим тебе подходит?</b>
+
+<b>Вопрос 1 из 3:</b>
+
+Сколько у тебя текстов для анализа?
+        """
+        
+        keyboard = [
+            [InlineKeyboardButton("До 500 текстов", callback_data="quiz_q1_small")],
+            [InlineKeyboardButton("500 - 5,000 текстов", callback_data="quiz_q1_medium")],
+            [InlineKeyboardButton("Больше 5,000 текстов", callback_data="quiz_q1_large")],
+            [InlineKeyboardButton("🔙 Назад в меню", callback_data="back_to_start")]
+        ]
+        
+        await query.edit_message_text(
+            text,
+            parse_mode='HTML',
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+    
+    elif action == "quiz_back_to_q2":
+        # Возвращаемся к вопросу 2
+        text = """
+<b>Вопрос 2 из 3:</b>
+
+Знаешь ли ты, какие категории нужны?
+(Например: "Доставка", "Оплата", "Качество товара")
+        """
+        
+        keyboard = [
+            [InlineKeyboardButton("Да, знаю категории", callback_data="quiz_q2_yes")],
+            [InlineKeyboardButton("Нет, не знаю", callback_data="quiz_q2_no")],
+            [InlineKeyboardButton("Есть идеи, но не уверен", callback_data="quiz_q2_maybe")],
+            [InlineKeyboardButton("🔙 Назад", callback_data="quiz_back_to_q1")]
+        ]
+        
+        await query.edit_message_text(
+            text,
+            parse_mode='HTML',
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+
+
 async def handle_quiz_result(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Показать результат квиза"""
     query = update.callback_query
     await query.answer()
     
+    logger.info(f"❓ QUIZ Q3 ANSWERED | User: {update.effective_user.id} | Data: {query.data}")
+
     # Сохраняем последний ответ
     answer = query.data.split('_')[2]  # once, regular, dunno
     context.user_data['quiz_answers']['q3_frequency'] = answer
@@ -2616,6 +2671,7 @@ pattern="^approve_generated_cats$|^edit_generated_cats$|^regenerate_cats$|^show_
     application.add_handler(CallbackQueryHandler(handle_quiz_q1, pattern="^quiz_q1_"))
     application.add_handler(CallbackQueryHandler(handle_quiz_q2, pattern="^quiz_q2_"))
     application.add_handler(CallbackQueryHandler(handle_quiz_result, pattern="^quiz_q3_"))
+    application.add_handler(CallbackQueryHandler(handle_quiz_back, pattern="^quiz_back_"))
 
 
     # Периодические задачи
