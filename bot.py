@@ -1,4 +1,5 @@
 # bot.py
+import time
 import logging
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
@@ -35,6 +36,7 @@ from evaluation import (
 )
 from category_generator import CategoryGenerator, CategorySuggestion
 from prompt_manager import PromptManager
+from temp_storage import temp_storage
 
 # Создать глобальный экземпляр
 prompt_manager = PromptManager()
@@ -858,7 +860,7 @@ async def handle_classification_mode_choice(update: Update, context: ContextType
             # Используем уже загруженный файл
             file_path = context.user_data['full_file_path']
             
-            # ⭐ Проверяем, что файл существует
+            # Проверяем, что файл существует
             import os
             if not os.path.exists(file_path):
                 logger.error(f"❌ FILE NOT FOUND | Path: {file_path}")
@@ -1237,11 +1239,15 @@ async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
             try:
                 # Загружаем файл
                 file = await update.message.document.get_file()
-                file_path = f"/tmp/{file.file_unique_id}.csv"
-                await file.download_to_drive(file_path)
+                
+                # ⭐ ВРЕМЕННЫЙ файл для скачивания
+                temp_download_path = f"/tmp/{file.file_unique_id}.csv"
+                await file.download_to_drive(temp_download_path)
+                
+                logger.info(f"📥 FILE DOWNLOADED | Path: {temp_download_path}")
                 
                 # Читаем CSV
-                df = pd.read_csv(file_path, encoding='utf-8', dtype=str)
+                df = pd.read_csv(temp_download_path, encoding='utf-8', dtype=str)
                 texts = df.iloc[:, 0].astype(str).tolist()
                 
                 if len(texts) < 10:
@@ -1250,17 +1256,32 @@ async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         "Для генерации категорий нужно минимум 10 текстов.",
                         parse_mode='HTML'
                     )
-                    cleanup_file_safe(file_path)
+                    cleanup_file_safe(temp_download_path)
                     return
+                
+                # ⭐ КОПИРУЕМ в безопасное место (TEMP_DIR под нашим контролем)
+                from config import TEMP_DIR
+                import os
+                import shutil
+                
+                # Создаём уникальное имя файла
+                safe_filename = f"autogen_{user_id}_{int(time.time())}.csv"
+                safe_file_path = os.path.join(TEMP_DIR, safe_filename)
+                
+                # Копируем файл
+                shutil.copy2(temp_download_path, safe_file_path)
+                
+                # Удаляем временный файл из /tmp
+                cleanup_file_safe(temp_download_path)
+                
+                logger.info(f"💾 FILE SAVED | Safe path: {safe_file_path}")
                 
                 # Получаем выборку
                 sample = category_generator.get_sample(texts)
                 context.user_data['sample_texts'] = sample
-                context.user_data['full_file_path'] = file_path
+                context.user_data['full_file_path'] = safe_file_path  # ⭐ Сохраняем безопасный путь
                 context.user_data['original_filename'] = update.message.document.file_name
-                
-                logger.info(f"✅ FILE SAVED | Path: {file_path} | Sample: {len(sample)} texts")
-                
+
                 # Спрашиваем про промт
                 text = f"""
 ✅ <b>Файл загружен!</b>
