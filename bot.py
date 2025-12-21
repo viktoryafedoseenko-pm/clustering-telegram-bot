@@ -348,7 +348,7 @@ async def handle_quiz_result(update: Update, context: ContextTypes.DEFAULT_TYPE)
             recommendation = 'classification'
             reason = (
                 "Даже с большим объёмом можно использовать классификацию, "
-                "если категории известны. Но это займёт больше времени (~1-2 часа)."
+                "если категории известны. Но это займёт больше времени (1-2 часа)."
             )
     
     elif size == 'small':  # < 500
@@ -358,7 +358,7 @@ async def handle_quiz_result(update: Update, context: ContextTypes.DEFAULT_TYPE)
         else:
             recommendation = 'classification_auto'
             reason = (
-                "Для небольшого объёма (<500 текстов) лучше использовать <b>автогенерацию категорий</b> — "
+                "Для небольшого объёма (до 500 текстов) лучше использовать <b>автогенерацию категорий</b> — "
                 "получишь понятные названия и точную раскладку."
             )
     
@@ -1228,7 +1228,7 @@ async def handle_classification_mode_choice(update: Update, context: ContextType
             "• Одна колонка с текстами\n"
             "• Кодировка UTF-8\n"
             "• Макс. 10,000 строк\n\n"
-            "⏱ Время: ~1-2 сек на текст"
+            "⏱ Время: 1-2 сек на текст"
         )
         
         await query.edit_message_text(text, parse_mode='HTML')
