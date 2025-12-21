@@ -36,7 +36,6 @@ from evaluation import (
 )
 from category_generator import CategoryGenerator, CategorySuggestion
 from prompt_manager import PromptManager
-from temp_storage import temp_storage
 
 # Создать глобальный экземпляр
 prompt_manager = PromptManager()
