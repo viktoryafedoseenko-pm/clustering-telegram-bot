@@ -25,6 +25,7 @@ from utils import (
     format_time_remaining,
     get_user_display_name
 )
+from analytics_simple import UserAnalytics
 from config import ADMIN_TELEGRAM_ID
 import datetime
 from progress_tracker import ProgressTracker
@@ -94,6 +95,7 @@ root_logger.addHandler(file_handler)
 root_logger.addHandler(console_handler)
 
 logger = logging.getLogger(__name__)
+analytics = None
 
 # Импорты для классификации (опциональные)
 classifier = None
@@ -130,9 +132,34 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     username = update.effective_user.username or "unknown"
     logger.info(f"📥 START | User: {user_id} (@{username})")
     
+    # ⭐ НОВОЕ: Парсинг источника из deep link
+    # Примеры: t.me/bot?start=from_site, t.me/bot?start=ref_ivanov
+    args = context.args
+    source = args[0] if args else 'organic'
+    
+    logger.info(f"🔗 SOURCE | User: {user_id} | Source: {source}")
+    
     # Очищаем старые данные
     context.user_data.clear()
     
+    # ⭐ НОВОЕ: Сохраняем источник и инициализируем счётчики
+    context.user_data['source'] = source
+    context.user_data['files_processed'] = 0
+    context.user_data['modes_used'] = []  # Список использованных режимов
+    
+    # ⭐ НОВОЕ: Отправка уведомления админу
+    if analytics:
+        try:
+            await analytics.track_start(
+                bot=context.bot,
+                user_id=user_id,
+                username=username,
+                source=source,
+                first_name=first_name
+            )
+        except Exception as e:
+            logger.error(f"Analytics track_start failed: {e}")
+
     welcome_msg = """
 👋 <b>Привет! Я помогу разобрать отзывы и обращения.</b>
 
@@ -1854,6 +1881,30 @@ async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"Noise: {stats['noise_percent']:.1f}% | "
             f"Silhouette: {stats.get('quality_metrics', {}).get('silhouette_score', 0):.3f}"
         )
+
+        # Увеличиваем счётчик файлов
+        context.user_data['files_processed'] = context.user_data.get('files_processed', 0) + 1
+        
+        # Добавляем режим в список использованных
+        if 'clustering' not in context.user_data.get('modes_used', []):
+            context.user_data.setdefault('modes_used', []).append('кластеризация')
+        
+        # Отправка уведомления админу
+        if analytics:
+            try:
+                await analytics.track_file_processed(
+                    bot=context.bot,
+                    user_id=user_id,
+                    username=username,
+                    files_count=context.user_data['files_processed'],
+                    mode='clustering',
+                    rows=n_rows,
+                    filename=file_name,
+                    quiz_data=context.user_data.get('quiz_answers'),
+                    source=context.user_data.get('source')
+                )
+            except Exception as e:
+                logger.error(f"Analytics track_file_processed failed: {e}")
         
         # Шаг 4: Формирование статистики
         stats_message = format_statistics(stats)
@@ -2122,6 +2173,31 @@ async def process_classification_mode(
         result_df.to_csv(result_path, index=False, encoding='utf-8')
         
         logger.info(f"✅ CLASSIFICATION COMPLETE | User: {user_id} | Texts: {n_texts}")
+        
+        # Увеличиваем счётчик файлов
+        context.user_data['files_processed'] = context.user_data.get('files_processed', 0) + 1
+        
+        # Добавляем режим в список
+        if 'classification' not in context.user_data.get('modes_used', []):
+            context.user_data.setdefault('modes_used', []).append('классификация')
+        
+        # Отправка уведомления админу
+        if analytics:
+            try:
+                await analytics.track_file_processed(
+                    bot=context.bot,
+                    user_id=user_id,
+                    username=update.effective_user.username,
+                    files_count=context.user_data['files_processed'],
+                    mode='classification',
+                    rows=n_texts,
+                    filename=filename,
+                    quiz_data=context.user_data.get('quiz_answers'),
+                    source=context.user_data.get('source')
+                )
+            except Exception as e:
+                logger.error(f"Analytics track_file_processed failed: {e}")
+
         
         if eval_mode:
             result_df['true_category'] = ground_truth
@@ -2612,6 +2688,20 @@ def main():
     
     logger.info("=" * 60)
     
+    # Инициализация аналитики
+    admin_id = os.getenv('ADMIN_TELEGRAM_ID')
+    if admin_id:
+        try:
+            global analytics
+            analytics = UserAnalytics(admin_chat_id=int(admin_id))
+            logger.info("✅ Analytics initialized")
+        except Exception as e:
+            logger.error(f"⚠️ Analytics init failed: {e}")
+            analytics = None
+    else:
+        logger.warning("⚠️ ADMIN_TELEGRAM_ID not set - analytics disabled")
+        analytics = None
+
     # Создаём application с job_queue
     from telegram.ext import JobQueue
 
