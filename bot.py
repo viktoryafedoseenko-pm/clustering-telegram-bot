@@ -130,10 +130,10 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Стартовое сообщение с выбором режима"""
     user_id = update.effective_user.id
     username = update.effective_user.username or "unknown"
+    first_name = update.effective_user.first_name
     logger.info(f"📥 START | User: {user_id} (@{username})")
     
-    # ⭐ НОВОЕ: Парсинг источника из deep link
-    # Примеры: t.me/bot?start=from_site, t.me/bot?start=ref_ivanov
+    # Парсинг источника из deep link
     args = context.args
     source = args[0] if args else 'organic'
     
@@ -142,12 +142,12 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Очищаем старые данные
     context.user_data.clear()
     
-    # ⭐ НОВОЕ: Сохраняем источник и инициализируем счётчики
+    # Сохраняем источник и инициализируем счётчики
     context.user_data['source'] = source
     context.user_data['files_processed'] = 0
     context.user_data['modes_used'] = []  # Список использованных режимов
     
-    # ⭐ НОВОЕ: Отправка уведомления админу
+    # Отправка уведомления админу
     if analytics:
         try:
             await analytics.track_start(
