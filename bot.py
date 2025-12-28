@@ -26,6 +26,7 @@ from utils import (
     get_user_display_name
 )
 from analytics_simple import UserAnalytics
+from demo_datasets import DEMO_DATASETS, get_demo_file_path, get_demo_description
 from config import ADMIN_TELEGRAM_ID
 from config import TEMP_DIR
 import shutil
@@ -644,6 +645,7 @@ async def show_quiz2_result(update: Update, context: ContextTypes.DEFAULT_TYPE, 
         
         keyboard = [
             [InlineKeyboardButton("Да, начать кластеризацию", callback_data="mode_clustering")],
+            [InlineKeyboardButton("📊 Попробовать на демо-данных", callback_data="show_demo_datasets")],
             [InlineKeyboardButton("Нет, лучше классификацию", callback_data="mode_classification")],
             [InlineKeyboardButton("🔙 В главное меню", callback_data="back_to_start")]
         ]
@@ -671,6 +673,7 @@ async def show_quiz2_result(update: Update, context: ContextTypes.DEFAULT_TYPE, 
         
         keyboard = [
             [InlineKeyboardButton("Да, начать классификацию", callback_data="mode_classification")],
+            [InlineKeyboardButton("📊 Попробовать на демо-данных", callback_data="show_demo_datasets")],
             [InlineKeyboardButton("Нет, лучше изучение", callback_data="mode_clustering")],
             [InlineKeyboardButton("В главное меню", callback_data="back_to_start")]
         ]
@@ -696,6 +699,7 @@ async def show_quiz2_result(update: Update, context: ContextTypes.DEFAULT_TYPE, 
         
         keyboard = [
             [InlineKeyboardButton("📊 Да, оценить качество", callback_data="mode_classification")],
+            [InlineKeyboardButton("📊 Попробовать на демо-данных", callback_data="show_demo_datasets")],
             [InlineKeyboardButton("🔍 Сначала изучить данные", callback_data="mode_clustering")],
             [InlineKeyboardButton("🔙 В главное меню", callback_data="back_to_start")]
         ]
@@ -725,6 +729,7 @@ async def show_quiz2_result(update: Update, context: ContextTypes.DEFAULT_TYPE, 
         
         keyboard = [
             [InlineKeyboardButton("📋 Классификация", callback_data="mode_classification")],
+            [InlineKeyboardButton("📊 Попробовать на демо-данных", callback_data="show_demo_datasets")],
             [InlineKeyboardButton("🔍 Изучение данных", callback_data="mode_clustering")],
             [InlineKeyboardButton("🔙 В главное меню", callback_data="back_to_start")]
         ]
@@ -737,6 +742,217 @@ async def show_quiz2_result(update: Update, context: ContextTypes.DEFAULT_TYPE, 
 
 
 # ===== Новый квиз закончился тут ====
+
+# === ДЕМО-ДАТАСЕТЫ ===
+
+async def show_demo_datasets(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Показать список готовых демо-датасетов"""
+    query = update.callback_query
+    await query.answer()
+    
+    user_id = update.effective_user.id
+    logger.info(f"📊 DEMO DATASETS MENU | User: {user_id}")
+    
+    text = """
+🎯 <b>Попробуйте на готовых данных</b>
+
+Выберите датасет — я сразу обработаю и покажу результат:
+
+📱 <b>Отзывы о мобильном приложении</b>
+   Реальные отзывы пользователей (15 примеров)
+
+🛒 <b>Обращения в поддержку e-commerce</b>
+   Тикеты службы поддержки интернет-магазина (15 примеров)
+
+🎓 <b>Фидбек студентов онлайн-курса</b>
+   Отзывы студентов после обучения (15 примеров)
+    """
+    
+    keyboard = []
+    for key, dataset in DEMO_DATASETS.items():
+        keyboard.append([
+            InlineKeyboardButton(
+                f"{dataset['emoji']} {dataset['name']} ({dataset['rows']} строк)",
+                callback_data=f"demo_{key}"
+            )
+        ])
+    
+    keyboard.append([InlineKeyboardButton("📎 Лучше загружу свой файл", 
+                                         callback_data="back_to_start")])
+    
+    await query.edit_message_text(
+        text,
+        parse_mode='HTML',
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
+
+
+async def handle_demo_selection(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Обработчик выбора демо-датасета"""
+    query = update.callback_query
+    await query.answer()
+    
+    user_id = update.effective_user.id
+    
+    # Извлекаем ключ датасета из callback_data
+    demo_key = query.data.replace('demo_', '')  # reviews_app, support_ecommerce, course_feedback
+    
+    logger.info(f"📊 DEMO SELECTED | User: {user_id} | Dataset: {demo_key}")
+    
+    # Получаем путь к файлу
+    file_path = get_demo_file_path(demo_key)
+    
+    if not file_path:
+        await query.edit_message_text(
+            "❌ <b>Ошибка:</b> Демо-файл не найден.\n\n"
+            "Попробуйте другой датасет или загрузите свой файл.",
+            parse_mode='HTML'
+        )
+        return
+    
+    # Показываем прогресс
+    progress_msg = await query.message.reply_text(
+        f"⏳ <b>Загружаю демо-датасет...</b>\n\n"
+        f"{get_demo_description(demo_key)}\n\n"
+        f"🔄 Начинаю обработку...",
+        parse_mode='HTML'
+    )
+    
+    try:
+        import pandas as pd
+        
+        # Читаем демо-файл
+        df = pd.read_csv(file_path, encoding='utf-8', dtype=str)
+        n_rows = len(df)
+        
+        logger.info(f"📊 DEMO FILE LOADED | User: {user_id} | Rows: {n_rows}")
+        
+        # Сохраняем информацию о файле в context
+        context.user_data['is_demo'] = True
+        context.user_data['demo_key'] = demo_key
+        
+        # Создаём tracker для прогресса
+        from progress_tracker import ProgressTracker
+        tracker = ProgressTracker(progress_msg, min_interval=3.0)
+        
+        await tracker.update(
+            stage="📊 Демо-файл загружен",
+            percent=10,
+            details=f"{n_rows} строк готовы к анализу",
+            force=True
+        )
+        
+        # Запускаем автоматическую кластеризацию
+        await tracker.update(
+            stage="🎯 Запускаю кластеризацию",
+            percent=20,
+            details="Это займёт 1-2 минуты"
+        )
+        
+        # Вызываем существующую функцию кластеризации
+        from clustering import clusterize_texts
+        
+        async def clustering_progress_callback(msg: str):
+            """Callback для обновления прогресса"""
+            if "Предобработка" in msg or "предобработк" in msg.lower():
+                await tracker.update("🧹 Предобработка", 30)
+            elif "Загрузка модели" in msg or "модели" in msg.lower():
+                await tracker.update("🤖 Загрузка AI модели", 40)
+            elif "Кластеризация" in msg:
+                await tracker.update("🎯 Кластеризация", 60)
+            elif "Объединение" in msg or "похожих" in msg:
+                await tracker.update("🔗 Объединение похожих кластеров", 75)
+            elif "Генерация названий" in msg or "названий" in msg.lower():
+                await tracker.update("📝 Генерация названий (AI)", 85)
+            elif "иерархии" in msg.lower():
+                await tracker.update("🗂️ Создание иерархии", 95)
+        
+        result_path, stats, hierarchy, master_names = clusterize_texts(
+            file_path,
+            progress_callback=clustering_progress_callback
+        )
+        
+        await tracker.complete("✅ Демо-анализ завершён!")
+        
+        # Увеличиваем счётчик файлов
+        context.user_data['files_processed'] = context.user_data.get('files_processed', 0) + 1
+        
+        if 'clustering' not in context.user_data.get('modes_used', []):
+            context.user_data.setdefault('modes_used', []).append('кластеризация')
+        
+        # Уведомление админу
+        if analytics:
+            try:
+                await analytics.track_file_processed(
+                    bot=context.bot,
+                    user_id=user_id,
+                    username=update.effective_user.username,
+                    files_count=context.user_data['files_processed'],
+                    mode='clustering',
+                    rows=n_rows,
+                    filename=f"[DEMO] {DEMO_DATASETS[demo_key]['name']}",
+                    quiz_data=context.user_data.get('quiz_answers'),
+                    source=context.user_data.get('source')
+                )
+            except Exception as e:
+                logger.error(f"Analytics track_file_processed failed: {e}")
+        
+        # Формирование статистики
+        from bot import format_statistics
+        stats_message = format_statistics(stats)
+        
+        # Добавляем пометку о демо
+        demo_note = (
+            f"\n\n💡 <b>Это был демо-датасет</b>\n"
+            f"{get_demo_description(demo_key)}\n\n"
+            f"✨ Готовы попробовать на своих данных?\n"
+            f"Просто загрузите CSV-файл!"
+        )
+        
+        stats_message += demo_note
+        
+        # Удаляем прогресс-сообщение
+        try:
+            await progress_msg.delete()
+        except:
+            pass
+        
+        # Отправляем результат
+        with open(result_path, 'rb') as result_file:
+            await query.message.reply_document(
+                document=result_file,
+                filename=f"demo_{demo_key}_result.csv",
+                caption=stats_message[:1000],  # Telegram limit
+                parse_mode='HTML'
+            )
+        
+        # Если caption слишком длинный — остаток отдельным сообщением
+        if len(stats_message) > 1000:
+            await query.message.reply_text(
+                stats_message[1000:],
+                parse_mode='HTML'
+            )
+        
+        # Очистка временного файла
+        from utils import cleanup_file_safe
+        cleanup_file_safe(result_path)
+        
+        logger.info(f"✅ DEMO COMPLETE | User: {user_id} | Dataset: {demo_key}")
+        
+    except Exception as e:
+        logger.error(f"❌ DEMO ERROR | User: {user_id} | Error: {str(e)}", exc_info=True)
+        
+        try:
+            await progress_msg.delete()
+        except:
+            pass
+        
+        await query.message.reply_text(
+            "❌ <b>Ошибка обработки демо-датасета</b>\n\n"
+            "Попробуйте другой датасет или загрузите свой файл.",
+            parse_mode='HTML'
+        )
+
 
 async def handle_mode_selection(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Обработчик выбора режима"""
@@ -3004,6 +3220,10 @@ pattern="^approve_generated_cats$|^edit_generated_cats$|^regenerate_cats$|^show_
     application.add_handler(CallbackQueryHandler(show_quiz_v2, pattern="^show_quiz_v2$"))
     application.add_handler(CallbackQueryHandler(handle_quiz2_q1, pattern="^quiz2_q1_"))
     application.add_handler(CallbackQueryHandler(handle_quiz2_q2, pattern="^quiz2_q2_"))
+
+    # Обработчики демо-датасетов
+    application.add_handler(CallbackQueryHandler(show_demo_datasets, pattern="^show_demo_datasets$"))
+    application.add_handler(CallbackQueryHandler(handle_demo_selection, pattern="^demo_"))
 
     # Периодические задачи
     if application.job_queue:
