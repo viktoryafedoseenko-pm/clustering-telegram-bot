@@ -645,7 +645,7 @@ async def show_quiz2_result(update: Update, context: ContextTypes.DEFAULT_TYPE, 
         
         keyboard = [
             [InlineKeyboardButton("Да, начать кластеризацию", callback_data="mode_clustering")],
-            [InlineKeyboardButton("📊 Попробовать на демо-данных", callback_data="show_demo_datasets")],
+            [InlineKeyboardButton("Попробовать на демо-данных", callback_data="show_demo_datasets")],
             [InlineKeyboardButton("Нет, лучше классификацию", callback_data="mode_classification")],
             [InlineKeyboardButton("🔙 В главное меню", callback_data="back_to_start")]
         ]
@@ -673,7 +673,7 @@ async def show_quiz2_result(update: Update, context: ContextTypes.DEFAULT_TYPE, 
         
         keyboard = [
             [InlineKeyboardButton("Да, начать классификацию", callback_data="mode_classification")],
-            [InlineKeyboardButton("📊 Попробовать на демо-данных", callback_data="show_demo_datasets")],
+            [InlineKeyboardButton("Попробовать на демо-данных", callback_data="show_demo_datasets")],
             [InlineKeyboardButton("Нет, лучше изучение", callback_data="mode_clustering")],
             [InlineKeyboardButton("В главное меню", callback_data="back_to_start")]
         ]
@@ -698,9 +698,9 @@ async def show_quiz2_result(update: Update, context: ContextTypes.DEFAULT_TYPE, 
         """
         
         keyboard = [
-            [InlineKeyboardButton("📊 Да, оценить качество", callback_data="mode_classification")],
-            [InlineKeyboardButton("📊 Попробовать на демо-данных", callback_data="show_demo_datasets")],
-            [InlineKeyboardButton("🔍 Сначала изучить данные", callback_data="mode_clustering")],
+            [InlineKeyboardButton("Да, оценить качество", callback_data="mode_classification")],
+            [InlineKeyboardButton("Попробовать на демо-данных", callback_data="show_demo_datasets")],
+            [InlineKeyboardButton("Сначала изучить данные", callback_data="mode_clustering")],
             [InlineKeyboardButton("🔙 В главное меню", callback_data="back_to_start")]
         ]
     
@@ -728,9 +728,9 @@ async def show_quiz2_result(update: Update, context: ContextTypes.DEFAULT_TYPE, 
         """
         
         keyboard = [
-            [InlineKeyboardButton("📋 Классификация", callback_data="mode_classification")],
-            [InlineKeyboardButton("📊 Попробовать на демо-данных", callback_data="show_demo_datasets")],
-            [InlineKeyboardButton("🔍 Изучение данных", callback_data="mode_clustering")],
+            [InlineKeyboardButton("Классификация", callback_data="mode_classification")],
+            [InlineKeyboardButton("Попробовать на демо-данных", callback_data="show_demo_datasets")],
+            [InlineKeyboardButton("Изучение данных", callback_data="mode_clustering")],
             [InlineKeyboardButton("🔙 В главное меню", callback_data="back_to_start")]
         ]
     
@@ -754,17 +754,17 @@ async def show_demo_datasets(update: Update, context: ContextTypes.DEFAULT_TYPE)
     logger.info(f"📊 DEMO DATASETS MENU | User: {user_id}")
     
     text = """
-🎯 <b>Попробуйте на готовых данных</b>
+<b>Попробуйте на готовых данных</b>
 
 Выберите датасет — я сразу обработаю и покажу результат:
 
-📱 <b>Отзывы о мобильном приложении</b>
+<b>Отзывы о мобильном приложении</b>
    Реальные отзывы пользователей (15 примеров)
 
-🛒 <b>Обращения в поддержку e-commerce</b>
+<b>Обращения в поддержку e-commerce</b>
    Тикеты службы поддержки интернет-магазина (15 примеров)
 
-🎓 <b>Фидбек студентов онлайн-курса</b>
+<b>Фидбек студентов онлайн-курса</b>
    Отзывы студентов после обучения (15 примеров)
     """
     
