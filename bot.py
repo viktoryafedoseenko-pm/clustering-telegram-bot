@@ -156,12 +156,12 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     # Создаем клавиатуру
     keyboard = [
-        [InlineKeyboardButton("📋 Разложить по категориям", callback_data="mode_classification")]
+        [InlineKeyboardButton("Разложить по категориям", callback_data="mode_classification")]
     ]
     
-    keyboard.append([InlineKeyboardButton("🔍 Изучить данные", callback_data="mode_clustering")])
-    keyboard.append([InlineKeyboardButton("❓ Помочь выбрать (квиз)", callback_data="show_quiz")])
-    keyboard.append([InlineKeyboardButton("💡 Как это работает?", callback_data="show_help")])
+    keyboard.append([InlineKeyboardButton("Изучить данные", callback_data="mode_clustering")])
+    keyboard.append([InlineKeyboardButton("Помочь выбрать (квиз)", callback_data="show_quiz")])
+    keyboard.append([InlineKeyboardButton("Как это работает?", callback_data="show_help")])
     
     reply_markup = InlineKeyboardMarkup(keyboard)
     
@@ -400,8 +400,8 @@ async def handle_quiz_result(update: Update, context: ContextTypes.DEFAULT_TYPE)
         """
         
         keyboard = [
-            [InlineKeyboardButton("🔍 Да, начать изучение", callback_data="mode_clustering")],
-            [InlineKeyboardButton("📋 Нет, лучше классификацию", callback_data="mode_classification")],
+            [InlineKeyboardButton("Да, начать изучение", callback_data="mode_clustering")],
+            [InlineKeyboardButton("Нет, лучше классификацию", callback_data="mode_classification")],
             [InlineKeyboardButton("🔙 В главное меню", callback_data="back_to_start")]
         ]
     
@@ -426,8 +426,8 @@ async def handle_quiz_result(update: Update, context: ContextTypes.DEFAULT_TYPE)
         """
         
         keyboard = [
-            [InlineKeyboardButton("📋 Да, начать классификацию", callback_data="mode_classification")],
-            [InlineKeyboardButton("🔍 Нет, лучше изучение", callback_data="mode_clustering")],
+            [InlineKeyboardButton("Да, начать классификацию", callback_data="mode_classification")],
+            [InlineKeyboardButton("Нет, лучше изучение", callback_data="mode_clustering")],
             [InlineKeyboardButton("🔙 В главное меню", callback_data="back_to_start")]
         ]
     
@@ -451,8 +451,8 @@ async def handle_quiz_result(update: Update, context: ContextTypes.DEFAULT_TYPE)
         """
         
         keyboard = [
-            [InlineKeyboardButton("📋 Да, начать классификацию", callback_data="mode_classification")],
-            [InlineKeyboardButton("🔍 Нет, лучше изучение", callback_data="mode_clustering")],
+            [InlineKeyboardButton("Да, начать классификацию", callback_data="mode_classification")],
+            [InlineKeyboardButton("Нет, лучше изучение", callback_data="mode_clustering")],
             [InlineKeyboardButton("🔙 В главное меню", callback_data="back_to_start")]
         ]
     
@@ -543,8 +543,8 @@ async def handle_mode_selection(update: Update, context: ContextTypes.DEFAULT_TY
         """
         
         keyboard = [
-            [InlineKeyboardButton("🎯 Ввести вручную", callback_data="cat_method_manual")],
-            [InlineKeyboardButton("🤖 Сгенерировать автоматически", callback_data="cat_method_auto")],
+            [InlineKeyboardButton("Ввести вручную", callback_data="cat_method_manual")],
+            [InlineKeyboardButton("Сгенерировать автоматически", callback_data="cat_method_auto")],
             [InlineKeyboardButton("🔙 Назад", callback_data="back_to_start")]
         ]
         
@@ -671,8 +671,8 @@ async def handle_prompt_customization_choice(update: Update, context: ContextTyp
         """
         
         keyboard = [
-            [InlineKeyboardButton("✅ Использовать стандартный", callback_data="use_default_gen_prompt")],
-            [InlineKeyboardButton("❌ Отмена", callback_data="mode_classification")]
+            [InlineKeyboardButton("Использовать стандартный", callback_data="use_default_gen_prompt")],
+            [InlineKeyboardButton("Отмена", callback_data="mode_classification")]
         ]
         
         context.user_data['awaiting_custom_prompt'] = 'generation'
@@ -712,8 +712,8 @@ async def handle_prompt_customization_choice(update: Update, context: ContextTyp
         """
         
         keyboard = [
-            [InlineKeyboardButton("✅ Использовать стандартный", callback_data="use_default_class_prompt")],
-            [InlineKeyboardButton("❌ Отмена", callback_data="mode_classification")]
+            [InlineKeyboardButton("Использовать стандартный", callback_data="use_default_class_prompt")],
+            [InlineKeyboardButton("Отмена", callback_data="mode_classification")]
         ]
         
         context.user_data['awaiting_custom_prompt'] = 'classification'
@@ -780,10 +780,10 @@ async def start_category_generation(update: Update, context: ContextTypes.DEFAUL
         )
         
         keyboard = [
-            [InlineKeyboardButton("✅ Использовать эти категории", callback_data="approve_generated_cats")],
-            [InlineKeyboardButton("✏️ Редактировать", callback_data="edit_generated_cats")],
-            [InlineKeyboardButton("🔄 Перегенерировать", callback_data="regenerate_cats")],
-            [InlineKeyboardButton("❌ Отмена", callback_data="back_to_start")]
+            [InlineKeyboardButton("Использовать эти категории", callback_data="approve_generated_cats")],
+            [InlineKeyboardButton("Редактировать", callback_data="edit_generated_cats")],
+            [InlineKeyboardButton("Перегенерировать", callback_data="regenerate_cats")],
+            [InlineKeyboardButton("Отмена", callback_data="back_to_start")]
         ]
         
         await progress_msg.edit_text(
@@ -843,8 +843,8 @@ async def handle_generated_categories_action(update: Update, context: ContextTyp
         """
         
         keyboard = [
-            [InlineKeyboardButton("✅ Использовать стандартный", callback_data="use_default_class_prompt")],
-            [InlineKeyboardButton("⚙️ Настроить промт", callback_data="customize_class_prompt")]
+            [InlineKeyboardButton("Использовать стандартный", callback_data="use_default_class_prompt")],
+            [InlineKeyboardButton("Настроить промт", callback_data="customize_class_prompt")]
         ]
         
         await query.edit_message_text(
@@ -907,9 +907,9 @@ async def handle_generated_categories_action(update: Update, context: ContextTyp
         """
         
         keyboard = [
-            [InlineKeyboardButton("✅ Перегенерировать с тем же промтом", callback_data="use_default_gen_prompt")],
-            [InlineKeyboardButton("⚙️ Изменить промт", callback_data="customize_gen_prompt")],
-            [InlineKeyboardButton("❌ Отмена", callback_data="show_generated_cats_again")]
+            [InlineKeyboardButton("Перегенерировать с тем же промтом", callback_data="use_default_gen_prompt")],
+            [InlineKeyboardButton("Изменить промт", callback_data="customize_gen_prompt")],
+            [InlineKeyboardButton("Отмена", callback_data="show_generated_cats_again")]
         ]
         
         await query.edit_message_text(
@@ -926,9 +926,9 @@ async def handle_generated_categories_action(update: Update, context: ContextTyp
         text = f"🏷️ <b>Сгенерированные категории:</b>\n\n{categories_text}\n<b>Что делать дальше?</b>"
         
         keyboard = [
-            [InlineKeyboardButton("✅ Использовать эти категории", callback_data="approve_generated_cats")],
-            [InlineKeyboardButton("✏️ Редактировать", callback_data="edit_generated_cats")],
-            [InlineKeyboardButton("🔄 Перегенерировать", callback_data="regenerate_cats")]
+            [InlineKeyboardButton("Использовать эти категории", callback_data="approve_generated_cats")],
+            [InlineKeyboardButton("Редактировать", callback_data="edit_generated_cats")],
+            [InlineKeyboardButton("Перегенерировать", callback_data="regenerate_cats")]
         ]
         
         await query.edit_message_text(
@@ -1070,8 +1070,8 @@ async def handle_categories_input(update: Update, context: ContextTypes.DEFAULT_
         """
         
         keyboard = [
-            [InlineKeyboardButton("✅ Использовать стандартный", callback_data="use_default_class_prompt")],
-            [InlineKeyboardButton("⚙️ Настроить промт", callback_data="customize_class_prompt")]
+            [InlineKeyboardButton("Использовать стандартный", callback_data="use_default_class_prompt")],
+            [InlineKeyboardButton("Настроить промт", callback_data="customize_class_prompt")]
         ]
         
         await update.message.reply_text(
@@ -1632,9 +1632,9 @@ async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 """
                 
                 keyboard = [
-                    [InlineKeyboardButton("✅ Использовать стандартный", callback_data="use_default_gen_prompt")],
-                    [InlineKeyboardButton("⚙️ Настроить промт", callback_data="customize_gen_prompt")],
-                    [InlineKeyboardButton("❌ Отмена", callback_data="back_to_start")]
+                    [InlineKeyboardButton("Использовать стандартный", callback_data="use_default_gen_prompt")],
+                    [InlineKeyboardButton("Настроить промт", callback_data="customize_gen_prompt")],
+                    [InlineKeyboardButton("Отмена", callback_data="back_to_start")]
                 ]
                 
                 await progress_msg.edit_text(
