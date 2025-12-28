@@ -165,7 +165,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 <b>Что нужно сделать?</b>
 
-📋 <b>Разложить по категориям</b>
+📋 <b>Разложить по темам или категориям</b>
 Распределю тексты по темам для отчёта или анализа.
 → Категории известны или AI предложит
 → Точная классификация с помощью AI
@@ -183,11 +183,11 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     # Создаем клавиатуру
     keyboard = [
-        [InlineKeyboardButton("Разложить по категориям", callback_data="mode_classification")]
+        [InlineKeyboardButton("Разложить по темам", callback_data="mode_classification")]
     ]
     
     keyboard.append([InlineKeyboardButton("Изучить данные", callback_data="mode_clustering")])
-    keyboard.append([InlineKeyboardButton("Помочь выбрать (квиз)", callback_data="show_quiz")])
+    keyboard.append([InlineKeyboardButton("Помочь выбрать (квиз)", callback_data="show_quiz_v2")])
     keyboard.append([InlineKeyboardButton("Как это работает?", callback_data="show_help")])
     
     reply_markup = InlineKeyboardMarkup(keyboard)
@@ -290,7 +290,6 @@ async def handle_quiz_q2(update: Update, context: ContextTypes.DEFAULT_TYPE):
         parse_mode='HTML',
         reply_markup=InlineKeyboardMarkup(keyboard)
     )
-
 
 async def handle_quiz_back(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Обработчик кнопки 'Назад' в квизе"""
@@ -495,6 +494,251 @@ async def handle_quiz_result(update: Update, context: ContextTypes.DEFAULT_TYPE)
         f"Recommendation: {recommendation}"
     )
 
+# ===== Старый квиз закончился тут ====
+# === НОВЫЙ КВИЗ V2 (2 вопроса) ===
+
+async def show_quiz_v2(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Упрощённый квиз (2 вопроса вместо 3)"""
+    query = update.callback_query
+    await query.answer()
+    
+    user_id = update.effective_user.id
+    logger.info(f"❓ QUIZ V2 START | User: {user_id}")
+    
+    # Инициализируем квиз
+    context.user_data['quiz_v2_answers'] = {}
+    
+    text = """
+❓ <b>Быстрый опрос (2 вопроса)</b>
+
+Чтобы показать самое полезное, ответьте:
+
+<b>Вопрос 1 из 2:</b>
+С какими данными работаете?
+    """
+    
+    keyboard = [
+        [InlineKeyboardButton("📝 Отзывы клиентов", callback_data="quiz2_q1_reviews")],
+        [InlineKeyboardButton("💬 Обращения в поддержку", callback_data="quiz2_q1_support")],
+        [InlineKeyboardButton("📋 Ответы на опросы", callback_data="quiz2_q1_surveys")],
+        [InlineKeyboardButton("💭 Соцсети/комментарии", callback_data="quiz2_q1_social")],
+        [InlineKeyboardButton("🔍 Другое / Не знаю", callback_data="quiz2_q1_other")],
+        [InlineKeyboardButton("🔙 Назад в меню", callback_data="back_to_start")]
+    ]
+    
+    await query.edit_message_text(
+        text,
+        parse_mode='HTML',
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
+
+
+async def handle_quiz2_q1(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Обработчик ответа на вопрос 1"""
+    query = update.callback_query
+    await query.answer()
+    
+    user_id = update.effective_user.id
+    
+    # Извлекаем ответ из callback_data
+    answer = query.data.split('_')[2]  # reviews, support, surveys, social, other
+    
+    # Маппинг для читаемых названий
+    answer_labels = {
+        'reviews': 'Отзывы клиентов',
+        'support': 'Обращения в поддержку',
+        'surveys': 'Ответы на опросы',
+        'social': 'Соцсети/комментарии',
+        'other': 'Другое'
+    }
+    
+    # Сохраняем ответ
+    context.user_data['quiz_v2_answers']['q1'] = answer_labels.get(answer, answer)
+    
+    logger.info(f"❓ QUIZ V2 Q1 | User: {user_id} | Answer: {answer}")
+    
+    text = """
+<b>Вопрос 2 из 2:</b>
+
+Какую задачу хотите решить?
+    """
+    
+    keyboard = [
+        [InlineKeyboardButton("🗺️ Исследовать данные — понять, о чём говорят", 
+                             callback_data="quiz2_q2_explore")],
+        [InlineKeyboardButton("🎯 Разложить по готовым категориям", 
+                             callback_data="quiz2_q2_classify")],
+        [InlineKeyboardButton("🔧 Улучшить существующую разметку", 
+                             callback_data="quiz2_q2_improve")],
+        [InlineKeyboardButton("💡 Просто посмотреть возможности", 
+                             callback_data="quiz2_q2_demo")],
+        [InlineKeyboardButton("🔙 Назад", callback_data="show_quiz_v2")]
+    ]
+    
+    await query.edit_message_text(
+        text,
+        parse_mode='HTML',
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
+
+
+async def handle_quiz2_q2(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Обработчик ответа на вопрос 2 и показ результата"""
+    query = update.callback_query
+    await query.answer()
+    
+    user_id = update.effective_user.id
+    
+    # Извлекаем ответ
+    answer = query.data.split('_')[2]  # explore, classify, improve, demo
+    
+    # Маппинг
+    answer_labels = {
+        'explore': 'Исследовать данные',
+        'classify': 'Разложить по категориям',
+        'improve': 'Улучшить разметку',
+        'demo': 'Посмотреть возможности'
+    }
+    
+    # Сохраняем ответ
+    context.user_data['quiz_v2_answers']['q2'] = answer_labels.get(answer, answer)
+
+    # Сохраняем в старом формате для совместимости с analytics
+    context.user_data['quiz_answers'] = {
+        'q1': context.user_data['quiz_v2_answers']['q1'],
+        'q2': context.user_data['quiz_v2_answers']['q2']
+    }
+    
+    logger.info(
+        f"❓ QUIZ V2 COMPLETE | User: {user_id} | "
+        f"Q1: {context.user_data['quiz_v2_answers']['q1']} | "
+        f"Q2: {context.user_data['quiz_v2_answers']['q2']}"
+    )
+    
+    # Показываем персонализированный результат
+    await show_quiz2_result(update, context, answer)
+
+
+async def show_quiz2_result(update: Update, context: ContextTypes.DEFAULT_TYPE, task: str):
+    """Персонализированный мост к действию после квиза"""
+    query = update.callback_query
+    
+    q1_answer = context.user_data['quiz_v2_answers']['q1']
+    
+    # Персонализация в зависимости от ответов
+    if task == 'explore':
+        result_text = f"""
+Отлично! Исследование данных — один из самых частых кейсов.
+
+📊 <b>Реальный пример:</b>
+Продуктолог онлайн-школы загрузил 7000 отзывов студентов.
+
+За 4 минуты я нашёл 12 тем, включая:
+• "Технические проблемы" (847 упоминаний)
+• "Недостаточная обратная связь от кураторов" (623)
+• "Сложно совмещать с работой" (512)
+
+💡 Самое интересное: 23% негатива был в темах, 
+которые вообще НЕ показывались в NPS-опросах.
+
+<b>Начать изучение данных?</b>
+        """
+        
+        keyboard = [
+            [InlineKeyboardButton("🔍 Да, начать изучение", callback_data="mode_clustering")],
+            [InlineKeyboardButton("📋 Нет, лучше классификацию", callback_data="mode_classification")],
+            [InlineKeyboardButton("🔙 В главное меню", callback_data="back_to_start")]
+        ]
+    
+    elif task == 'classify':
+        result_text = f"""
+Понял! Вам нужно автоматически разложить тексты 
+по готовым темам.
+
+📋 <b>Реальный пример:</b>
+Руководитель поддержки дал мне 3000 обращений 
+и список из 8 категорий:
+• Технические проблемы
+• Возврат средств
+• Доставка
+• ...
+
+Я разложил всё за 2 минуты с точностью 87%.
+
+Результат — CSV, который можно сразу открыть 
+в Excel или загрузить в CRM.
+
+<b>Начать классификацию?</b>
+        """
+        
+        keyboard = [
+            [InlineKeyboardButton("📋 Да, начать классификацию", callback_data="mode_classification")],
+            [InlineKeyboardButton("🔍 Нет, лучше изучение", callback_data="mode_clustering")],
+            [InlineKeyboardButton("🔙 В главное меню", callback_data="back_to_start")]
+        ]
+    
+    elif task == 'improve':
+        result_text = f"""
+Понял! Вам нужно проверить качество существующей разметки.
+
+📊 <b>Как это работает:</b>
+1. Загружаете файл с двумя колонками:
+   • Текст
+   • Правильная категория (ваша разметка)
+
+2. Я проверю каждый текст и покажу:
+   • Точность (Accuracy)
+   • Метрики по категориям
+   • Примеры ошибок
+
+3. Получите рекомендации по улучшению.
+
+<b>Начать оценку качества?</b>
+        """
+        
+        keyboard = [
+            [InlineKeyboardButton("📊 Да, оценить качество", callback_data="mode_classification")],
+            [InlineKeyboardButton("🔍 Сначала изучить данные", callback_data="mode_clustering")],
+            [InlineKeyboardButton("🔙 В главное меню", callback_data="back_to_start")]
+        ]
+    
+    else:  # demo
+        result_text = f"""
+Без проблем! Покажу все возможности.
+
+<b>Что я умею:</b>
+
+🔍 <b>Изучение данных</b> (кластеризация)
+→ Автоматически нахожу темы
+→ Быстро (5-20 минут)
+→ Бесплатно, до 50,000 текстов
+
+📋 <b>Классификация</b>
+→ Раскладываю по вашим категориям
+→ Точность 85-95%
+→ Можно сгенерировать категории автоматически
+
+📊 <b>Оценка качества</b>
+→ Проверка существующей разметки
+→ Метрики и рекомендации
+
+<b>Что попробуем?</b>
+        """
+        
+        keyboard = [
+            [InlineKeyboardButton("📋 Классификация", callback_data="mode_classification")],
+            [InlineKeyboardButton("🔍 Изучение данных", callback_data="mode_clustering")],
+            [InlineKeyboardButton("🔙 В главное меню", callback_data="back_to_start")]
+        ]
+    
+    await query.edit_message_text(
+        result_text,
+        parse_mode='HTML',
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
+
+
+# ===== Новый квиз закончился тут ====
 
 async def handle_mode_selection(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Обработчик выбора режима"""
@@ -2756,13 +3000,17 @@ pattern="^approve_generated_cats$|^edit_generated_cats$|^regenerate_cats$|^show_
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_categories_input))
     application.add_handler(MessageHandler(filters.Document.ALL, handle_file))
     application.add_error_handler(error_handler)
-    # Обработчики квиза
+    # Обработчики квиза V1
     application.add_handler(CallbackQueryHandler(show_quiz, pattern="^show_quiz$"))
     application.add_handler(CallbackQueryHandler(handle_quiz_q1, pattern="^quiz_q1_"))
     application.add_handler(CallbackQueryHandler(handle_quiz_q2, pattern="^quiz_q2_"))
     application.add_handler(CallbackQueryHandler(handle_quiz_result, pattern="^quiz_q3_"))
     application.add_handler(CallbackQueryHandler(handle_quiz_back, pattern="^quiz_back_"))
 
+    # Обработчики квиза V2
+    application.add_handler(CallbackQueryHandler(show_quiz_v2, pattern="^show_quiz_v2$"))
+    application.add_handler(CallbackQueryHandler(handle_quiz2_q1, pattern="^quiz2_q1_"))
+    application.add_handler(CallbackQueryHandler(handle_quiz2_q2, pattern="^quiz2_q2_"))
 
     # Периодические задачи
     if application.job_queue:
