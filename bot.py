@@ -27,6 +27,8 @@ from utils import (
 )
 from analytics_simple import UserAnalytics
 from config import ADMIN_TELEGRAM_ID
+from config import TEMP_DIR
+import shutil
 import datetime
 from progress_tracker import ProgressTracker
 from evaluation import (
@@ -169,16 +171,16 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 Распределю тексты по темам для отчёта или анализа.
 → Категории известны или AI предложит
 → Точная классификация с помощью AI
-→ До 5,000 текстов
+→ До 5 000 текстов
 
 🔍 <b>Изучить данные</b>
 Автоматически найду все темы в больших объёмах.
-→ Быстрый анализ (5-20 минут)
-→ Бесплатно, до 50,000 текстов
+→ Глубокий анализ – 5-20 минут
+→ Бесплатно, до 50 000 текстов
 → Для первичного исследования
 
-❓ <b>Не уверен, что выбрать?</b>
-Пройди быстрый квиз (30 секунд)
+❓ <b>Не знаешь, что выбрать?</b>
+Пройди быстрый опрос (30 секунд)
     """
     
     # Создаем клавиатуру
@@ -187,7 +189,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     ]
     
     keyboard.append([InlineKeyboardButton("Изучить данные", callback_data="mode_clustering")])
-    keyboard.append([InlineKeyboardButton("Помочь выбрать (квиз)", callback_data="show_quiz_v2")])
+    keyboard.append([InlineKeyboardButton("Пройти опрос", callback_data="show_quiz_v2")])
     keyboard.append([InlineKeyboardButton("Как это работает?", callback_data="show_help")])
     
     reply_markup = InlineKeyboardMarkup(keyboard)
@@ -509,20 +511,16 @@ async def show_quiz_v2(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data['quiz_v2_answers'] = {}
     
     text = """
-❓ <b>Быстрый опрос (2 вопроса)</b>
-
-Чтобы показать самое полезное, ответьте:
-
 <b>Вопрос 1 из 2:</b>
 С какими данными работаете?
     """
     
     keyboard = [
-        [InlineKeyboardButton("📝 Отзывы клиентов", callback_data="quiz2_q1_reviews")],
-        [InlineKeyboardButton("💬 Обращения в поддержку", callback_data="quiz2_q1_support")],
-        [InlineKeyboardButton("📋 Ответы на опросы", callback_data="quiz2_q1_surveys")],
-        [InlineKeyboardButton("💭 Соцсети/комментарии", callback_data="quiz2_q1_social")],
-        [InlineKeyboardButton("🔍 Другое / Не знаю", callback_data="quiz2_q1_other")],
+        [InlineKeyboardButton("Отзывы клиентов", callback_data="quiz2_q1_reviews")],
+        [InlineKeyboardButton("Обращения в поддержку", callback_data="quiz2_q1_support")],
+        [InlineKeyboardButton("Ответы на опросы", callback_data="quiz2_q1_surveys")],
+        [InlineKeyboardButton("Соцсети/комментарии", callback_data="quiz2_q1_social")],
+        [InlineKeyboardButton("Другое / Не знаю", callback_data="quiz2_q1_other")],
         [InlineKeyboardButton("🔙 Назад в меню", callback_data="back_to_start")]
     ]
     
@@ -564,13 +562,13 @@ async def handle_quiz2_q1(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
     
     keyboard = [
-        [InlineKeyboardButton("🗺️ Исследовать данные — понять, о чём говорят", 
+        [InlineKeyboardButton("Понять, о чём говорят", 
                              callback_data="quiz2_q2_explore")],
-        [InlineKeyboardButton("🎯 Разложить по готовым категориям", 
+        [InlineKeyboardButton("Разложить по категориям", 
                              callback_data="quiz2_q2_classify")],
-        [InlineKeyboardButton("🔧 Улучшить существующую разметку", 
+        [InlineKeyboardButton("Улучшить разметку", 
                              callback_data="quiz2_q2_improve")],
-        [InlineKeyboardButton("💡 Просто посмотреть возможности", 
+        [InlineKeyboardButton("Просто посмотреть возможности", 
                              callback_data="quiz2_q2_demo")],
         [InlineKeyboardButton("🔙 Назад", callback_data="show_quiz_v2")]
     ]
@@ -628,25 +626,25 @@ async def show_quiz2_result(update: Update, context: ContextTypes.DEFAULT_TYPE, 
     # Персонализация в зависимости от ответов
     if task == 'explore':
         result_text = f"""
-Отлично! Исследование данных — один из самых частых кейсов.
+Отлично! Вам подходит режим исследования, он же режим кластеризации. Его используют в ситуациях, когда данных очень много и нет возможности анализировать их вручную или с помощью GPT.
 
-📊 <b>Реальный пример:</b>
-Продуктолог онлайн-школы загрузил 7000 отзывов студентов.
+<b>Реальный пример:</b>
+Продакт-менеджер онлайн-школы загрузил 7000 отзывов студентов.
 
-За 4 минуты я нашёл 12 тем, включая:
+За 4 минуты бот нашёл 12 тем, включая:
 • "Технические проблемы" (847 упоминаний)
 • "Недостаточная обратная связь от кураторов" (623)
 • "Сложно совмещать с работой" (512)
 
-💡 Самое интересное: 23% негатива был в темах, 
-которые вообще НЕ показывались в NPS-опросах.
+Самое интересное: 23% негатива было найдено в темах, 
+которые вообще не показывались в NPS-опросах.
 
 <b>Начать изучение данных?</b>
         """
         
         keyboard = [
-            [InlineKeyboardButton("🔍 Да, начать изучение", callback_data="mode_clustering")],
-            [InlineKeyboardButton("📋 Нет, лучше классификацию", callback_data="mode_classification")],
+            [InlineKeyboardButton("Да, начать кластеризацию", callback_data="mode_clustering")],
+            [InlineKeyboardButton("Нет, лучше классификацию", callback_data="mode_classification")],
             [InlineKeyboardButton("🔙 В главное меню", callback_data="back_to_start")]
         ]
     
@@ -672,9 +670,9 @@ async def show_quiz2_result(update: Update, context: ContextTypes.DEFAULT_TYPE, 
         """
         
         keyboard = [
-            [InlineKeyboardButton("📋 Да, начать классификацию", callback_data="mode_classification")],
-            [InlineKeyboardButton("🔍 Нет, лучше изучение", callback_data="mode_clustering")],
-            [InlineKeyboardButton("🔙 В главное меню", callback_data="back_to_start")]
+            [InlineKeyboardButton("Да, начать классификацию", callback_data="mode_classification")],
+            [InlineKeyboardButton("Нет, лучше изучение", callback_data="mode_clustering")],
+            [InlineKeyboardButton("В главное меню", callback_data="back_to_start")]
         ]
     
     elif task == 'improve':
@@ -1420,7 +1418,6 @@ async def handle_classification_mode_choice(update: Update, context: ContextType
             file_path = context.user_data['full_file_path']
             
             # Проверяем, что файл существует
-            import os
             if not os.path.exists(file_path):
                 logger.error(f"❌ FILE NOT FOUND | Path: {file_path}")
                 await query.message.reply_text(
@@ -1616,7 +1613,7 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 📋 <b>Классификация</b> — когда нужно разложить по категориям
 🔍 <b>Изучение</b> — когда нужно понять, что вообще есть в данных
 
-Не уверен? Используй /start → "Помочь выбрать (квиз)"
+Не уверен? Используй /start → "Пройти квиз"
 
 ━━━━━━━━━━━━━━━━━
 
@@ -1865,11 +1862,7 @@ async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     )
                     cleanup_file_safe(temp_download_path)
                     return
-                
-                # ⭐ КОПИРУЕМ в безопасное место (TEMP_DIR под нашим контролем)
-                from config import TEMP_DIR
-                import os
-                import shutil
+            
                 
                 # Создаём уникальное имя файла
                 safe_filename = f"autogen_{user_id}_{int(time.time())}.csv"
