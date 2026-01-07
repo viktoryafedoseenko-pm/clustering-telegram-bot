@@ -42,6 +42,7 @@ from category_generator import CategoryGenerator, CategorySuggestion
 from prompt_manager import PromptManager
 
 # Создать глобальный экземпляр
+load_dotenv()
 prompt_manager = PromptManager()
 category_generator = None
 
@@ -67,8 +68,8 @@ class BotStates:
 
 # Настройки логирования
 # Создаём директорию для логов
-LOG_DIR = Path("/home/yc-user/logs")
-LOG_DIR.mkdir(exist_ok=True)
+LOG_DIR = Path(os.getenv("BOT_LOG_DIR", TEMP_DIR / "logs"))
+LOG_DIR.mkdir(parents=True, exist_ok=True)
 
 # Форматирование логов
 formatter = logging.Formatter(
@@ -126,7 +127,6 @@ if classifier:
 
 
 # Загрузка токена
-load_dotenv()
 TOKEN = os.getenv('TELEGRAM_BOT_TOKEN')
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -164,33 +164,34 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             logger.error(f"Analytics track_start failed: {e}")
 
     welcome_msg = """
-👋 <b>Привет! Я помогу разобрать отзывы и обращения.</b>
+👋 <b>Привет! Я помогу проанализировать отзывы и обращения.</b>
 
-<b>Что нужно сделать?</b>
+Доступно два режима работы.
 
-📋 <b>Разложить по темам или категориям</b>
-Распределю тексты по темам для отчёта или анализа.
-→ Категории известны или AI предложит
-→ Точная классификация с помощью AI
-→ До 5 000 текстов
+<b>Детальный разбор</b>
+→ От 10 до 10 000 текстов
+→ Качество 9/10
+→ Бесплатно во время тестового периода
+→ YaGPT
 
-🔍 <b>Изучить данные</b>
+<b>Быстрый скан</b>
 Автоматически найду все темы в больших объёмах.
-→ Глубокий анализ – 5-20 минут
-→ Бесплатно, до 50 000 текстов
-→ Для первичного исследования
+→ От 10 000 до 50 000 текстов
+→ Качество 6/10
+→ Бесплатно навсегда
+→ BERTopic
 
-❓ <b>Не знаешь, что выбрать?</b>
-Пройди быстрый опрос (30 секунд)
+<b>Не знаешь, что выбрать?</b>
+Пройди быстрый квиз (30 секунд)
     """
     
     # Создаем клавиатуру
     keyboard = [
-        [InlineKeyboardButton("Разложить по темам", callback_data="mode_classification")]
+        [InlineKeyboardButton("Детальный разбор", callback_data="mode_classification")]
     ]
     
-    keyboard.append([InlineKeyboardButton("Изучить данные", callback_data="mode_clustering")])
-    keyboard.append([InlineKeyboardButton("Пройти опрос", callback_data="show_quiz_v2")])
+    keyboard.append([InlineKeyboardButton("Быстрый скан", callback_data="mode_clustering")])
+    keyboard.append([InlineKeyboardButton("Пройти квиз", callback_data="show_quiz_v2")])
     keyboard.append([InlineKeyboardButton("Как это работает?", callback_data="show_help")])
     
     reply_markup = InlineKeyboardMarkup(keyboard)
@@ -2603,19 +2604,29 @@ async def process_classification_mode(
             force=True
         )
         
-        async def classification_progress(progress: float, current: int, total: int):
-            if current % 5 == 0 or current == total:
-                await tracker.update(
+        loop = asyncio.get_running_loop()
+
+        # Обёртка для прогресса, чтобы вызывать async-обновление из потока executor'а
+        def sync_progress(progress: float, current: int, total: int):
+            if current % 5 != 0 and current != total:
+                return
+            asyncio.run_coroutine_threadsafe(
+                tracker.update(
                     stage=f"🏷️ Классифицировано: {current}/{total}",
                     percent=30 + int(progress * 0.6),
                     details=f"Осталось ~{(total-current)*1.5//60} мин"
-                )
-        
-        result_df = classifier.classify_batch(
-            texts,
-            categories,
-            descriptions,
-            progress_callback=classification_progress
+                ),
+                loop,
+            )
+
+        result_df = await loop.run_in_executor(
+            None,
+            lambda: classifier.classify_batch(
+                texts,
+                categories,
+                descriptions,
+                progress_callback=sync_progress,
+            ),
         )
         
         stats = classifier.get_classification_stats(result_df)
@@ -3133,7 +3144,10 @@ def main():
     logger.info("🤖 BOT STARTING...")
     logger.info(f"📁 Log directory: {LOG_DIR}")
     logger.info(f"📁 Temp directory: {TEMP_DIR}")
-    logger.info(f"🔑 Token configured: {'✅' if TOKEN else '❌'}")
+    if not TOKEN:
+        logger.error("❌ TELEGRAM_BOT_TOKEN is not set. Please configure it in environment or .env file.")
+        raise RuntimeError("TELEGRAM_BOT_TOKEN is not set")
+    logger.info("🔑 Token configured: ✅")
     
     # Очистка старых файлов при старте
     logger.info("🗑️ Cleaning up old temp files...")
