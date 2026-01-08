@@ -40,33 +40,53 @@ from demo_datasets import DEMO_DATASETS, get_demo_file_path, get_demo_descriptio
 load_dotenv()
 
 # =============================================================================
-# ЛОГИРОВАНИЕ
+# ЛОГИРОВАНИЕ - ИСПРАВЛЕННАЯ ВЕРСИЯ
 # =============================================================================
 
 LOG_DIR = Path(os.getenv("BOT_LOG_DIR", TEMP_DIR / "logs"))
 LOG_DIR.mkdir(parents=True, exist_ok=True)
 
+# Очистка существующих обработчиков (если есть)
+logging.getLogger().handlers.clear()
+
+# Настройка формата
 formatter = logging.Formatter(
     '%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     datefmt='%Y-%m-%d %H:%M:%S'
 )
 
+# Файловый обработчик
 file_handler = RotatingFileHandler(
-    LOG_DIR / "bot.log", maxBytes=10*1024*1024, backupCount=5, encoding='utf-8'
+    str(LOG_DIR / "bot.log"),  # Явное преобразование к строке
+    maxBytes=10*1024*1024, 
+    backupCount=5, 
+    encoding='utf-8'
 )
 file_handler.setFormatter(formatter)
 file_handler.setLevel(logging.INFO)
 
+# Консольный обработчик
 console_handler = logging.StreamHandler()
 console_handler.setFormatter(formatter)
 console_handler.setLevel(logging.INFO)
 
+# Настройка корневого логгера
 root_logger = logging.getLogger()
 root_logger.setLevel(logging.INFO)
 root_logger.addHandler(file_handler)
 root_logger.addHandler(console_handler)
 
+# Отдельный логгер для этого модуля
 logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
+
+# Убедимся, что он не пропагатируется на корневой
+logger.propagate = True  # Оставить True для наследования обработчиков
+
+logger.info("=" * 50)
+logger.info("🔄 Логирование инициализировано")
+logger.info(f"Логи пишутся в: {LOG_DIR / 'bot.log'}")
+logger.info("=" * 50)
 
 # =============================================================================
 # ИНИЦИАЛИЗАЦИЯ
