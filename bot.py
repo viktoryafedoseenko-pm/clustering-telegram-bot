@@ -155,17 +155,37 @@ def build_keyboard(buttons: list) -> InlineKeyboardMarkup:
 
 
 async def send_msg(update: Update, msg, edit: bool = False, **kwargs):
-    """Отправка сообщения"""
+    """Отправка сообщения с проверкой возможности редактирования"""
     text = format_message(msg, **kwargs)
     keyboard = build_keyboard(get_buttons(msg))
     
-    if update.callback_query:
-        if edit:
-            await update.callback_query.edit_message_text(text, parse_mode='HTML', reply_markup=keyboard)
+    try:
+        if update.callback_query:
+            if edit:
+                # Проверяем, можно ли редактировать сообщение
+                message = update.callback_query.message
+                if message and message.text:
+                    await update.callback_query.edit_message_text(
+                        text, parse_mode='HTML', reply_markup=keyboard
+                    )
+                else:
+                    # Если нельзя редактировать, отправляем новое
+                    await update.callback_query.message.reply_text(
+                        text, parse_mode='HTML', reply_markup=keyboard
+                    )
+            else:
+                await update.callback_query.message.reply_text(
+                    text, parse_mode='HTML', reply_markup=keyboard
+                )
         else:
+            await update.message.reply_text(text, parse_mode='HTML', reply_markup=keyboard)
+    except Exception as e:
+        logger.error(f"Ошибка отправки сообщения: {e}")
+        # Фолбэк: всегда отправляем новое сообщение
+        if update.callback_query:
             await update.callback_query.message.reply_text(text, parse_mode='HTML', reply_markup=keyboard)
-    else:
-        await update.message.reply_text(text, parse_mode='HTML', reply_markup=keyboard)
+        else:
+            await update.message.reply_text(text, parse_mode='HTML', reply_markup=keyboard)
 
 
 def get_target(update: Update):
