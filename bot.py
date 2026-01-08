@@ -61,10 +61,12 @@ console_handler = logging.StreamHandler()
 console_handler.setFormatter(formatter)
 console_handler.setLevel(logging.INFO)
 
+root_logger = logging.getLogger()
+root_logger.setLevel(logging.INFO)
+root_logger.addHandler(file_handler)
+root_logger.addHandler(console_handler)
+
 logger = logging.getLogger(__name__)
-logger.setLevel(logging.INFO)
-logger.addHandler(file_handler)
-logger.addHandler(console_handler)
 
 # =============================================================================
 # ИНИЦИАЛИЗАЦИЯ
@@ -653,6 +655,7 @@ async def start_classification(update: Update, context: ContextTypes.DEFAULT_TYP
 async def cb_feedback_positive(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """4.3.1-2. Положительная оценка"""
     query = update.callback_query
+    logger.info(f"CALLBACK | feedback_positive | User: {update.effective_user.id}")
     await query.answer()
     
     await send_msg(update, MSG_4_3_5, edit=True)
@@ -665,6 +668,7 @@ async def cb_feedback_positive(update: Update, context: ContextTypes.DEFAULT_TYP
 async def cb_feedback_bad(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """4.3.3. Плохая оценка"""
     query = update.callback_query
+    logger.info(f"CALLBACK | feedback_bad | User: {update.effective_user.id}")
     await query.answer()
     
     set_state(context, BotState.COLLECTING_FEEDBACK)
@@ -674,6 +678,7 @@ async def cb_feedback_bad(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def cb_feedback_terrible(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """4.3.4. Очень плохая оценка"""
     query = update.callback_query
+    logger.info(f"CALLBACK | feedback_terrible | User: {update.effective_user.id}")
     await query.answer()
     
     set_state(context, BotState.WAITING_FOR_FEEDBACK_TEXT)
@@ -683,6 +688,7 @@ async def cb_feedback_terrible(update: Update, context: ContextTypes.DEFAULT_TYP
 async def cb_problem_selected(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Выбрана проблема → предложить перенастроить"""
     query = update.callback_query
+    logger.info(f"CALLBACK | problem_selected | User: {update.effective_user.id}")
     await query.answer()
     
     await send_msg(update, MSG_4_3_6, edit=True)
@@ -691,6 +697,7 @@ async def cb_problem_selected(update: Update, context: ContextTypes.DEFAULT_TYPE
 async def cb_ask_continue(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Спросить о продолжении"""
     query = update.callback_query
+    logger.info(f"CALLBACK | ask_continue | User: {update.effective_user.id}")
     await query.answer()
     
     set_state(context, BotState.SESSION_END)
@@ -700,6 +707,7 @@ async def cb_ask_continue(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def cb_upload_new(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """4.3.7.1. Загрузить новый файл"""
     query = update.callback_query
+    logger.info(f"CALLBACK | upload_new | User: {update.effective_user.id}")
     await query.answer()
     
     # Очищаем старые данные

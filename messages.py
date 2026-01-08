@@ -338,9 +338,9 @@ MSG_5_1 = Message(
 
 Выберите датасет или загрузите свой файл:""",
     buttons=[
-        {"text": "📱 Отзывы приложения", "callback": "demo_app_reviews"},
-        {"text": "🛒 E-commerce поддержка", "callback": "demo_ecommerce"},
-        {"text": "🎓 Фидбек студентов", "callback": "demo_students"},
+        {"text": "📱 Отзывы приложения", "callback": "demo_reviews_app"},
+        {"text": "🛒 E-commerce поддержка", "callback": "demo_support_ecommerce"},
+        {"text": "🎓 Фидбек студентов", "callback": "demo_course_feedback"},
         {"text": "🔙 Назад", "callback": "back_to_start"},
     ]
 )
