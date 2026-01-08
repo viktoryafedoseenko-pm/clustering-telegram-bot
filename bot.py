@@ -786,15 +786,28 @@ async def cb_demo_select(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Выбор демо-датасета"""
     query = update.callback_query
     await query.answer()
+    logger.info(f"DEMO | User: {update.effective_user.id} | Selected: {query.data}")
     
+    # Стало с маппингом:
     demo_key = query.data.replace("demo_", "")
+    # Маппинг callback -> dataset key
+    key_map = {
+        'reviews_app': 'reviews_app',
+        'support_ecommerce': 'support_ecommerce', 
+        'course_feedback': 'course_feedback',
+    }
+    demo_key = key_map.get(demo_key, demo_key)
+    logger.info(f"DEMO | Parsed key: {demo_key}")
     
     if demo_key not in DEMO_DATASETS:
+        logger.error(f"DEMO | Unknown demo key: {demo_key}")
         await send_msg(update, MSG_E8, edit=True)
         return
     
     dataset = DEMO_DATASETS[demo_key]
     context.user_data['demo_key'] = demo_key
+
+    logger.info(f"DEMO | Dataset selected: {dataset['name']}")
     
     await send_msg(update, MSG_5_1_SELECTED, edit=True,
                   dataset_name=dataset['name'],
