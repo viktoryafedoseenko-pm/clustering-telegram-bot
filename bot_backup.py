@@ -1,770 +1,240 @@
 # bot.py
-import os
-import io
-import asyncio
+import time
 import logging
-import html
+from logging.handlers import RotatingFileHandler
 from pathlib import Path
-from typing import List
-
-import pandas as pd
+import os
+import asyncio
 from dotenv import load_dotenv
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import (
-    Application,
-    CommandHandler,
-    MessageHandler,
-    CallbackQueryHandler,
-    ContextTypes,
-    filters,
+import html
+import pandas as pd
+from metrics import ClusteringMetrics
+from telegram import Update
+from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
+from clustering import clusterize_texts
+from clustering import generate_insight_yandex
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+from cache_manager import cache
+from analytics import generate_detailed_report
+from config import TEMP_DIR
+from rate_limiter import rate_limiter
+from utils import (
+    cleanup_old_temp_files,
+    cleanup_file_safe,
+    check_disk_space,
+    format_time_remaining,
+    get_user_display_name
 )
-
-from states import BotState, get_expected_input
-from messages import (
-    MSG_1, MSG_1_3_1, MSG_2_0, MSG_2_3, MSG_3_1, MSG_3_2_1, MSG_3_2_3,
-    MSG_3_3_1, MSG_3_3_2, MSG_3_5_1, MSG_3_6, MSG_3_6_2_1,
-    MSG_4_1, MSG_4_3, MSG_4_3_3_1, MSG_4_3_4_1, MSG_4_3_4_2,
-    MSG_4_3_5, MSG_4_3_6, MSG_4_3_7, MSG_4_4, MSG_5_1,
-    MSG_E1, MSG_E2, MSG_E3, MSG_E4, MSG_E5, MSG_E6, MSG_E7, MSG_E8, MSG_E9, MSG_E10,
-    format_message, get_buttons
+from analytics_simple import UserAnalytics
+from demo_datasets import DEMO_DATASETS, get_demo_file_path, get_demo_description
+from config import ADMIN_TELEGRAM_ID
+from config import TEMP_DIR
+import shutil
+import datetime
+from progress_tracker import ProgressTracker
+from evaluation import (
+    calculate_metrics, 
+    get_error_examples, 
+    format_evaluation_report,
+    validate_ground_truth
 )
+from category_generator import CategoryGenerator, CategorySuggestion
+from prompt_manager import PromptManager
 
-from classification import LLMClassifier, validate_categories, parse_categories_from_text
-from category_generator import CategoryGenerator
-
+# Создать глобальный экземпляр
 load_dotenv()
-
-# Логирование (простая конфигурация)
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
-
-# Глобальные объекты
-YANDEX_API_KEY = os.getenv("YANDEX_API_KEY")
-YANDEX_FOLDER_ID = os.getenv("YANDEX_FOLDER_ID")
-TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
-
-classifier = None
+prompt_manager = PromptManager()
 category_generator = None
 
-if YANDEX_API_KEY and YANDEX_FOLDER_ID:
-    try:
+PROCESSING_SEMAPHORE = asyncio.Semaphore(2)
+
+# Состояния для ConversationHandler
+class BotStates:
+    """Состояния бота"""
+    CHOOSING_MODE = "choosing_mode"
+    # Существующие
+    WAITING_FOR_CATEGORIES = "waiting_for_categories"
+    WAITING_FOR_FILE = "waiting_for_file"
+    # Новые для автогенерации
+    CHOOSING_CATEGORY_METHOD = "choosing_category_method"
+    ASKING_GENERATION_PROMPT = "asking_generation_prompt"
+    WAITING_FOR_GENERATION_PROMPT = "waiting_for_generation_prompt"
+    WAITING_FOR_SAMPLE_FILE = "waiting_for_sample_file"
+    GENERATING_CATEGORIES = "generating_categories"
+    SHOWING_GENERATED_CATEGORIES = "showing_generated_categories"
+    EDITING_CATEGORIES = "editing_categories"
+    ASKING_CLASSIFICATION_PROMPT = "asking_classification_prompt"
+    WAITING_FOR_CLASSIFICATION_PROMPT = "waiting_for_classification_prompt"
+
+# Настройки логирования
+# Создаём директорию для логов
+LOG_DIR = Path(os.getenv("BOT_LOG_DIR", TEMP_DIR / "logs"))
+LOG_DIR.mkdir(parents=True, exist_ok=True)
+
+# Форматирование логов
+formatter = logging.Formatter(
+    '%(asctime)s - %(name)s - %(levelname)s - [%(filename)s:%(lineno)d] - %(message)s',
+    datefmt='%Y-%m-%d %H:%M:%S'
+)
+
+# Хендлер для файла (с автоматической ротацией)
+file_handler = RotatingFileHandler(
+    LOG_DIR / "bot.log",
+    maxBytes=10*1024*1024,  # 10 МБ на файл
+    backupCount=5,           # Храним 5 файлов (итого 50 МБ)
+    encoding='utf-8'
+)
+file_handler.setFormatter(formatter)
+file_handler.setLevel(logging.INFO)
+
+# Хендлер для консоли (чтобы systemd тоже видел)
+console_handler = logging.StreamHandler()
+console_handler.setFormatter(formatter)
+console_handler.setLevel(logging.INFO)
+
+# Настройка корневого логгера
+root_logger = logging.getLogger()
+root_logger.setLevel(logging.INFO)
+root_logger.addHandler(file_handler)
+root_logger.addHandler(console_handler)
+
+logger = logging.getLogger(__name__)
+analytics = None
+
+# Импорты для классификации (опциональные)
+classifier = None
+CLASSIFICATION_AVAILABLE = False
+try:
+    from classification import LLMClassifier, validate_categories, parse_categories_from_text
+    if os.getenv("YANDEX_API_KEY") and os.getenv("YANDEX_FOLDER_ID"):
         classifier = LLMClassifier()
+        CLASSIFICATION_AVAILABLE = True
+        logger.info("✅ Classification module loaded")
+except ImportError:
+    logger.warning("⚠️ classification.py not found - classification disabled")
+except Exception as e:
+    logger.warning(f"⚠️ Classification init failed: {e}")
+
+if classifier:
+    try:
         category_generator = CategoryGenerator(
-            api_key=YANDEX_API_KEY,
-            folder_id=YANDEX_FOLDER_ID,
+            api_key=os.getenv("YANDEX_API_KEY"),
+            folder_id=os.getenv("YANDEX_FOLDER_ID")
         )
-        logger.info("✅ Classification & category generation enabled")
+        logger.info("✅ Category generator loaded")
     except Exception as e:
-        logger.error(f"⚠️ Failed to init LLMClassifier/CategoryGenerator: {e}")
-else:
-    logger.warning("⚠️ YANDEX_API_KEY / YANDEX_FOLDER_ID not set: classification/generation disabled")
+        logger.warning(f"⚠️ Category generator init failed: {e}")
 
 
-# =============================================================================
-# ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ
-# =============================================================================
-
-def get_state(context: ContextTypes.DEFAULT_TYPE) -> BotState:
-    """Получить текущее состояние пользователя"""
-    return context.user_data.get('state', BotState.START)
-
-
-def set_state(context: ContextTypes.DEFAULT_TYPE, state: BotState) -> None:
-    """Установить состояние с логированием"""
-    old_state = get_state(context)
-    context.user_data['state'] = state
-    logger.info(f"STATE CHANGE | {old_state.name} → {state.name}")
-
-
-def build_keyboard(buttons: list) -> InlineKeyboardMarkup:
-    """Создаёт клавиатуру из списка кнопок"""
-    if not buttons:
-        return None
-    keyboard = [[InlineKeyboardButton(btn["text"], callback_data=btn["callback"])]
-                for btn in buttons]
-    return InlineKeyboardMarkup(keyboard)
-
-
-async def send_message(
-    update: Update,
-    msg,
-    edit: bool = False,
-    **format_kwargs
-) -> None:
-    """Универсальная отправка сообщения"""
-    text = format_message(msg, **format_kwargs)
-    keyboard = build_keyboard(get_buttons(msg))
-
-    if edit and update.callback_query:
-        await update.callback_query.edit_message_text(
-            text,
-            parse_mode='HTML',
-            reply_markup=keyboard
-        )
-    elif update.callback_query:
-        await update.callback_query.message.reply_text(
-            text,
-            parse_mode='HTML',
-            reply_markup=keyboard
-        )
-    else:
-        await update.message.reply_text(
-            text,
-            parse_mode='HTML',
-            reply_markup=keyboard
-        )
-
-
-# =============================================================================
-# ГЛОБАЛЬНЫЙ ОБРАБОТЧИК CSV (G1)
-# =============================================================================
-
-async def handle_csv_global(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
-    """
-    G1: CSV на любом шаге после 1 → переход к 2.2 (валидация)
-    Возвращает True, если файл обработан
-    """
-    if not update.message or not update.message.document:
-        return False
-
-    if not update.message.document.file_name.endswith('.csv'):
-        return False
-
-    current_state = get_state(context)
-
-    # CSV принимается на любом шаге кроме активной классификации
-    if current_state == BotState.CLASSIFYING:
-        await update.message.reply_text(
-            "⏳ <b>Подождите</b>\n\nСейчас идёт обработка. Дождитесь завершения.",
-            parse_mode='HTML'
-        )
-        return True
-
-    logger.info(f"G1 TRIGGERED | State: {current_state.name} | Processing CSV")
-
-    # Переходим к валидации файла
-    await validate_and_process_file(update, context)
-    return True
-
-
-# =============================================================================
-# 1. ПРИВЕТСТВИЕ
-# =============================================================================
+# Загрузка токена
+TOKEN = os.getenv('TELEGRAM_BOT_TOKEN')
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """1. Стартовое сообщение"""
+    """Стартовое сообщение с выбором режима"""
     user_id = update.effective_user.id
-    logger.info(f"START | User: {user_id}")
-
-    # Очищаем данные
+    username = update.effective_user.username or "unknown"
+    first_name = update.effective_user.first_name
+    logger.info(f"📥 START | User: {user_id} (@{username})")
+    
+    # Парсинг источника из deep link
+    args = context.args
+    source = args[0] if args else 'organic'
+    
+    logger.info(f"🔗 SOURCE | User: {user_id} | Source: {source}")
+    
+    # Очищаем старые данные
     context.user_data.clear()
-    set_state(context, BotState.START)
-
-    await send_message(update, MSG_1)
-
-
-async def handle_help_file_format(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """1.3.1. Инструкция по подготовке файла"""
-    query = update.callback_query
-    await query.answer()
-    await send_message(update, MSG_1_3_1, edit=True)
-
-
-# =============================================================================
-# 2. ЗАГРУЗКА ФАЙЛА
-# =============================================================================
-
-async def validate_and_process_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """2.2. Валидация файла"""
-    import pandas as pd
-
-    user_id = update.effective_user.id
-    document = update.message.document
-
-    logger.info(f"FILE VALIDATION | User: {user_id} | File: {document.file_name}")
-
-    # Проверка формата (E1)
-    if not document.file_name.endswith('.csv'):
-        await send_message(update, MSG_E1)
-        return
-
-    # Проверка размера (E2)
-    MAX_SIZE_MB = 20
-    file_size_mb = document.file_size / (1024 * 1024)
-
-    if file_size_mb > MAX_SIZE_MB:
-        await send_message(
-            update, MSG_E2,
-            file_size=f"{file_size_mb:.1f} МБ",
-            max_size=f"{MAX_SIZE_MB} МБ",
-            max_rows="50 000"
-        )
-        return
-
-    # Загрузка и анализ
-    progress_msg = await update.message.reply_text(
-        "⏳ <b>Загружаю файл...</b>",
-        parse_mode='HTML'
-    )
-
-    try:
-        file = await document.get_file()
-        file_path = f"/tmp/{file.file_unique_id}.csv"
-        await file.download_to_drive(file_path)
-
-        df = pd.read_csv(file_path, encoding='utf-8', dtype=str)
-        n_rows = len(df)
-
-        # Проверка на пустой файл (E10)
-        if n_rows == 0:
-            await progress_msg.delete()
-            await send_message(update, MSG_E10)
-            return
-
-        # Проверка лимита строк (E2)
-        MAX_ROWS = 50000
-        if n_rows > MAX_ROWS:
-            await progress_msg.delete()
-            await send_message(
-                update, MSG_E2,
-                file_size=f"{n_rows} строк",
-                max_size=f"{MAX_SIZE_MB} МБ",
-                max_rows=f"{MAX_ROWS}"
-            )
-            return
-
-        # Сохраняем данные
-        context.user_data['file_path'] = file_path
-        context.user_data['file_name'] = document.file_name
-        context.user_data['records_count'] = n_rows
-        context.user_data['df'] = df
-
-        # Примеры текстов
-        first_texts = df.iloc[:3, 0].fillna("").astype(str).tolist()
-        examples = "\n".join([
-            f"• {html.escape(t[:60])}{'...' if len(t) > 60 else ''}"
-            for t in first_texts if t.strip()
-        ])
-
-        await progress_msg.delete()
-
-        # 2.3. Файл получен
-        set_state(context, BotState.FILE_RECEIVED)
-        await send_message(
-            update, MSG_2_3,
-            records_count=n_rows,
-            examples=examples or "—"
-        )
-
-    except Exception as e:
-        logger.error(f"FILE VALIDATION ERROR | {e}", exc_info=True)
+    
+    # Сохраняем источник и инициализируем счётчики
+    context.user_data['source'] = source
+    context.user_data['files_processed'] = 0
+    context.user_data['modes_used'] = []  # Список использованных режимов
+    
+    # Отправка уведомления админу
+    if analytics:
         try:
-            await progress_msg.delete()
-        except Exception:
-            pass
-        await send_message(update, MSG_E8)
-        set_state(context, BotState.ERROR)
-
-
-# =============================================================================
-# 3. НАСТРОЙКА ПАРАМЕТРОВ
-# =============================================================================
-
-async def handle_settings_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """3.1. Меню настроек"""
-    query = update.callback_query
-    await query.answer()
-    set_state(context, BotState.SETTINGS_MENU)
-    await send_message(update, MSG_3_1, edit=True)
-
-
-async def handle_categories_manual(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """3.2.1. Запрос ручного ввода категорий"""
-    query = update.callback_query
-    await query.answer()
-    set_state(context, BotState.WAITING_FOR_CATEGORIES)
-    await send_message(update, MSG_3_2_1, edit=True)
-
-
-async def handle_prompt_custom(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Запрос кастомного промпта"""
-    query = update.callback_query
-    await query.answer()
-    set_state(context, BotState.WAITING_FOR_PROMPT)
-    await send_message(update, MSG_3_3_1, edit=True, default_prompt="Определи 5-10 понятных категорий.")
-
-
-async def handle_prompt_default(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Установить стандартный промпт и запустить автогенерацию"""
-    context.user_data['custom_prompt'] = None
-    await send_message(update, MSG_3_3_2, edit=True)
-    await handle_categories_auto(update, context, from_prompt=True)
-
-
-async def handle_text_input(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Обработчик текстового ввода в зависимости от состояния"""
-    state = get_state(context)
-    text = update.message.text
-    user_id = update.effective_user.id
-
-    logger.info(f"TEXT INPUT | User: {user_id} | State: {state.name} | Text: {text[:50]}...")
-
-    if state == BotState.WAITING_FOR_CATEGORIES:
-        await process_categories_input(update, context, text)
-
-    elif state == BotState.EDITING_CATEGORIES:
-        await process_categories_input(update, context, text, editing=True)
-
-    elif state == BotState.WAITING_FOR_PROMPT:
-        await process_prompt_input(update, context, text)
-
-    elif state == BotState.WAITING_FOR_FEEDBACK_TEXT:
-        await process_feedback_text(update, context, text)
-
-    else:
-        # E9: Неизвестная команда
-        expected = get_expected_input(state)
-        await send_message(
-            update, MSG_E9,
-            expected_input=expected,
-            available_actions="Используйте кнопки меню или отправьте CSV-файл."
-        )
-
-
-async def process_categories_input(update: Update, context: ContextTypes.DEFAULT_TYPE, text: str, editing: bool = False):
-    """3.2.2. Валидация категорий"""
-    categories = parse_categories_from_text(text)
-    is_valid, error_msg = validate_categories(categories)
-
-    if not is_valid:
-        if "мало" in error_msg.lower() or len(categories) < 2:
-            await send_message(update, MSG_E4)
-        else:
-            await send_message(update, MSG_E5)
-        return
-
-    # 3.2.3. Категории приняты
-    context.user_data['categories'] = categories
-    categories_list = "\n".join([f"{i+1}. {cat}" for i, cat in enumerate(categories)])
-
-    set_state(context, BotState.CATEGORIES_CONFIRMED)
-    await send_message(
-        update, MSG_3_2_3,
-        categories_count=len(categories),
-        categories_list=categories_list
-    )
-
-
-async def process_prompt_input(update: Update, context: ContextTypes.DEFAULT_TYPE, text: str):
-    """Обработка кастомного промпта"""
-    context.user_data['custom_prompt'] = text
-    await send_message(update, MSG_3_3_2, edit=True)
-    await handle_categories_auto(update, context, from_prompt=True)
-
-
-async def handle_categories_auto(update: Update, context: ContextTypes.DEFAULT_TYPE, from_prompt: bool = False):
-    """3.5. Генерация категорий"""
-    if category_generator is None:
-        await send_message(update, MSG_E6)
-        set_state(context, BotState.SETTINGS_MENU)
-        return
-
-    query = update.callback_query
-    if query:
-        await query.answer()
-
-    set_state(context, BotState.GENERATING_CATEGORIES)
-
-    # Получаем выборку текстов
-    df = context.user_data.get('df')
-    if df is None:
-        await send_message(update, MSG_E8, edit=True)
-        return
-
-    texts = df.iloc[:, 0].astype(str).tolist()
-    sample = texts[:500] if len(texts) > 500 else texts
-
-    # Показываем прогресс
-    await send_message(
-        update, MSG_3_5_1,
-        edit=bool(query) or from_prompt,
-        sample_size=len(sample)
-    )
-
-    try:
-        custom_prompt = context.user_data.get('custom_prompt')
-        success, categories, error = category_generator.generate_categories(sample, custom_prompt)
-
-        if not success or not categories:
-            await send_message(update, MSG_E6)
-            set_state(context, BotState.SETTINGS_MENU)
-            return
-
-        # Сохраняем категории
-        context.user_data['generated_categories'] = categories
-
-        # 3.6. Показываем результат
-        categories_list = category_generator.format_categories_for_display(categories)
-
-        set_state(context, BotState.SHOWING_GENERATED)
-        await send_message(
-            update, MSG_3_6,
-            categories_list=categories_list
-        )
-
-    except Exception as e:
-        logger.error(f"CATEGORY GENERATION ERROR | {e}", exc_info=True)
-        await send_message(update, MSG_E6)
-        set_state(context, BotState.SETTINGS_MENU)
-
-
-async def handle_categories_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Подтверждение сгенерированных категорий"""
-    generated = context.user_data.get('generated_categories')
-    if not generated:
-        await send_message(update, MSG_E6)
-        return
-    context.user_data['categories'] = generated
-    set_state(context, BotState.CATEGORIES_CONFIRMED)
-    await send_message(
-        update, MSG_3_2_3,
-        categories_count=len(generated),
-        categories_list="\n".join([f"{i+1}. {c}" for i, c in enumerate(generated)])
-    )
-
-
-async def handle_categories_edit(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Показ редактирования категорий"""
-    categories = context.user_data.get('generated_categories') or context.user_data.get('categories', [])
-    categories_text = "\n".join(categories)
-    set_state(context, BotState.EDITING_CATEGORIES)
-    await send_message(update, MSG_3_6_2_1, categories_text=categories_text, edit=True)
-
-
-# =============================================================================
-# 4. КЛАССИФИКАЦИЯ
-# =============================================================================
-
-def _format_distribution(df: pd.DataFrame, top_n: int = 5) -> str:
-    counts = df['category'].value_counts().head(top_n)
-    lines = [f"• {cat}: {count} ({count/len(df)*100:.1f}%)" for cat, count in counts.items()]
-    return "\n".join(lines)
-
-
-async def handle_run_classification(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """4.1. Запуск классификации"""
-    query = update.callback_query
-    if query:
-        await query.answer()
-
-    categories = context.user_data.get('categories', [])
-    df = context.user_data.get('df')
-
-    if not categories:
-        await send_message(update, MSG_E4, edit=bool(query))
-        return
-
-    if df is None:
-        await send_message(update, MSG_E8, edit=bool(query))
-        return
-
-    if classifier is None:
-        await send_message(update, MSG_E6, edit=bool(query))
-        return
-
-    total_texts = len(df)
-
-    # Оценка времени
-    if total_texts < 100:
-        time_estimate = "~1 минута"
-    elif total_texts < 1000:
-        time_estimate = "1-3 минуты"
-    else:
-        time_estimate = f"{max(1, total_texts // 700)}-{max(2, total_texts // 400)} минут"
-
-    set_state(context, BotState.CLASSIFYING)
-
-    await send_message(
-        update, MSG_4_1,
-        edit=bool(query),
-        total_texts=total_texts,
-        categories_count=len(categories),
-        time_estimate=time_estimate
-    )
-
-    # Запуск классификации в executor, чтобы не блокировать event loop
-    loop = asyncio.get_running_loop()
-
-    progress_msg = None
-    try:
-        progress_msg = await (query.message if query else update.message).reply_text(
-            "⏳ Запускаю классификацию...",
-            parse_mode="HTML"
-        )
-    except Exception:
-        pass
-
-    def progress_cb(progress: float, current: int, total: int):
-        if current % 5 != 0 and current != total:
-            return
-        if progress_msg:
-            asyncio.run_coroutine_threadsafe(
-                progress_msg.edit_text(
-                    f"⏳ Классификация: {current}/{total} ({progress:.1f}%)",
-                    parse_mode="HTML"
-                ),
-                loop
+            await analytics.track_start(
+                bot=context.bot,
+                user_id=user_id,
+                username=username,
+                source=source,
+                first_name=first_name
             )
+        except Exception as e:
+            logger.error(f"Analytics track_start failed: {e}")
 
-    texts = df.iloc[:, 0].astype(str).tolist()
+    welcome_msg = """
+👋 <b>Привет! Я помогу проанализировать отзывы и обращения.</b>
 
-    try:
-        result_df = await loop.run_in_executor(
-            None,
-            lambda: classifier.classify_batch(
-                texts,
-                categories,
-                descriptions=None,
-                batch_delay=1.0,
-                progress_callback=progress_cb
-            )
-        )
+Доступно два режима работы.
 
-        stats = classifier.get_classification_stats(result_df)
+<b>Детальный разбор</b>
+→ От 10 до 10 000 текстов
+→ Качество 9/10
+→ Бесплатно во время тестового периода
+→ YaGPT
 
-        distribution = _format_distribution(result_df)
-        summary = ""
+<b>Быстрый скан</b>
+Автоматически найду все темы в больших объёмах.
+→ От 10 000 до 50 000 текстов
+→ Качество 6/10
+→ Бесплатно навсегда
+→ BERTopic
 
-        await send_message(
-            update,
-            MSG_4_3,
-            edit=False,
-            total_texts=stats["total_texts"],
-            categories_count=len(categories),
-            avg_confidence=stats["avg_confidence"],
-            distribution=distribution,
-            summary=summary,
-        )
+<b>Не знаешь, что выбрать?</b>
+Пройди быстрый квиз (30 секунд)
+    """
+    
+    # Создаем клавиатуру
+    keyboard = [
+        [InlineKeyboardButton("Детальный разбор", callback_data="mode_classification")]
+    ]
+    
+    keyboard.append([InlineKeyboardButton("Быстрый скан", callback_data="mode_clustering")])
+    keyboard.append([InlineKeyboardButton("Пройти квиз", callback_data="show_quiz_v2")])
+    keyboard.append([InlineKeyboardButton("Как это работает?", callback_data="show_help")])
+    
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    await update.message.reply_text(
+        welcome_msg,
+        parse_mode='HTML',
+        reply_markup=reply_markup
+    )
 
-        # Отправляем файл с результатами
-        buf = io.StringIO()
-        result_df.to_csv(buf, index=False, encoding="utf-8")
-        buf.seek(0)
-        await (query.message if query else update.message).reply_document(
-            document=buf.getvalue().encode("utf-8"),
-            filename="classified.csv",
-            caption="📄 Результаты классификации"
-        )
-
-        set_state(context, BotState.SHOWING_RESULT)
-        await send_message(update, MSG_4_3_7)
-
-    except Exception as e:
-        logger.error(f"CLASSIFICATION ERROR | {e}", exc_info=True)
-        await send_message(update, MSG_E8, edit=False)
-        set_state(context, BotState.ERROR)
-    finally:
-        if progress_msg:
-            try:
-                await progress_msg.delete()
-            except Exception:
-                pass
-
-
-async def handle_feedback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """4.3.1-4.3.4. Обработка оценки результата"""
+async def show_quiz(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Показать квиз для выбора режима"""
     query = update.callback_query
     await query.answer()
-
-    feedback_type = query.data
+    
     user_id = update.effective_user.id
+    logger.info(f"❓ QUIZ START | User: {user_id}")
+    
+    # Инициализируем квиз
+    context.user_data['quiz_answers'] = {}
+    
+    text = """
+❓ <b>Квиз: Какой режим тебе подходит?</b>
 
-    logger.info(f"FEEDBACK | User: {user_id} | Type: {feedback_type}")
+Отвечу на 3 быстрых вопроса и порекомендую оптимальный вариант.
 
-    if feedback_type in ["feedback_great", "feedback_ok"]:
-        # 4.3.5. Положительная оценка
-        await send_message(update, MSG_4_3_5, edit=True)
+<b>Вопрос 1 из 3:</b>
 
-        # 4.3.7. Предложение продолжить
-        await send_message(update, MSG_4_3_7)
-        set_state(context, BotState.SESSION_END)
-
-    elif feedback_type == "feedback_bad":
-        # 4.3.3.1. Уточнение проблемы
-        set_state(context, BotState.COLLECTING_FEEDBACK)
-        await send_message(update, MSG_4_3_3_1, edit=True)
-
-    elif feedback_type == "feedback_terrible":
-        # 4.3.4.1. Запрос детального фидбека
-        set_state(context, BotState.WAITING_FOR_FEEDBACK_TEXT)
-        await send_message(update, MSG_4_3_4_1, edit=True)
-
-
-async def process_feedback_text(update: Update, context: ContextTypes.DEFAULT_TYPE, text: str):
-    """4.3.4.2. Обработка текста фидбека"""
-    user_id = update.effective_user.id
-    logger.info(f"FEEDBACK TEXT | User: {user_id} | Text: {text[:100]}...")
-
-    # Сохраняем фидбек (можно отправить админу)
-    # ...
-
-    # 4.3.4.2. Благодарность
-    await send_message(update, MSG_4_3_4_2)
-
-    # 4.3.6. Предложение перенастроить
-    await send_message(update, MSG_4_3_6)
-    set_state(context, BotState.SESSION_END)
-
-
-async def handle_session_end(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """4.4. Завершение сессии"""
-    query = update.callback_query
-    await query.answer()
-
-    action = query.data
-
-    if action == "upload_new":
-        set_state(context, BotState.WAITING_FOR_FILE)
-        await send_message(update, MSG_2_0, edit=True)
-
-    elif action == "finish_session":
-        set_state(context, BotState.SESSION_END)
-        await send_message(update, MSG_4_4, edit=True)
-
-
-# =============================================================================
-# 5. ДЕМО-РЕЖИМ
-# =============================================================================
-
-async def handle_demo_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """5.1. Демо-приветствие"""
-    query = update.callback_query
-    await query.answer()
-    set_state(context, BotState.DEMO_MENU)
-    await send_message(update, MSG_5_1, edit=True)
-
-
-# =============================================================================
-# ГЛОБАЛЬНЫЕ КОМАНДЫ (G2, G3)
-# =============================================================================
-
-async def handle_start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """G2: /start → сброс состояния"""
-    await start(update, context)
-
-
-async def handle_help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """G3: /help → справка без сброса"""
-    await send_message(update, MSG_1_3_1)
-
-
-# =============================================================================
-# ГЛАВНЫЙ ОБРАБОТЧИК ФАЙЛОВ
-# =============================================================================
-
-async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Главный обработчик файлов — реализует G1"""
-    handled = await handle_csv_global(update, context)
-
-    if not handled:
-        # Не CSV файл
-        await send_message(update, MSG_E1)
-
-
-# =============================================================================
-# РЕГИСТРАЦИЯ ОБРАБОТЧИКОВ
-# =============================================================================
-
-def register_handlers(application: Application):
-    """Регистрация всех обработчиков"""
-
-    # Команды
-    application.add_handler(CommandHandler("start", handle_start_command))
-    application.add_handler(CommandHandler("help", handle_help_command))
-
-    # 1. Приветствие
-    application.add_handler(CallbackQueryHandler(
-        handle_help_file_format, pattern="^help_file_format$"
-    ))
-    application.add_handler(CallbackQueryHandler(
-        handle_demo_start, pattern="^demo_start$"
-    ))
-    application.add_handler(CallbackQueryHandler(
-        start, pattern="^back_to_start$"
-    ))
-
-    # 2. Загрузка файла
-    application.add_handler(CallbackQueryHandler(
-        lambda u, c: send_message(u, MSG_2_0, edit=True),
-        pattern="^ready_to_upload$"
-    ))
-
-    # 3. Настройки
-    application.add_handler(CallbackQueryHandler(
-        handle_settings_menu, pattern="^settings_menu$"
-    ))
-    application.add_handler(CallbackQueryHandler(
-        handle_categories_manual, pattern="^categories_manual$"
-    ))
-    application.add_handler(CallbackQueryHandler(
-        handle_categories_auto, pattern="^categories_auto$"
-    ))
-    application.add_handler(CallbackQueryHandler(
-        handle_prompt_custom, pattern="^prompt_custom$"
-    ))
-    application.add_handler(CallbackQueryHandler(
-        handle_prompt_default, pattern="^prompt_default$"
-    ))
-    application.add_handler(CallbackQueryHandler(
-        handle_categories_confirm, pattern="^categories_confirm$"
-    ))
-    application.add_handler(CallbackQueryHandler(
-        handle_categories_edit, pattern="^categories_edit$|^categories_show_again$"
-    ))
-
-    # 4. Классификация
-    application.add_handler(CallbackQueryHandler(
-        handle_run_classification, pattern="^run_default$|^run_classification$"
-    ))
-    application.add_handler(CallbackQueryHandler(
-        handle_feedback, pattern="^feedback_"
-    ))
-    application.add_handler(CallbackQueryHandler(
-        handle_session_end, pattern="^upload_new$|^finish_session$"
-    ))
-
-    # 5. Демо
-    application.add_handler(CallbackQueryHandler(
-        handle_demo_start, pattern="^demo_"
-    ))
-
-    # Текстовый ввод
-    application.add_handler(MessageHandler(
-        filters.TEXT & ~filters.COMMAND,
-        handle_text_input
-    ))
-
-    # Файлы (G1)
-    application.add_handler(MessageHandler(
-        filters.Document.ALL,
-        handle_file
-    ))
-
-
-def main():
-    """Точка входа"""
-    if not TOKEN:
-        raise RuntimeError("TELEGRAM_BOT_TOKEN is not set")
-
-    application = Application.builder().token(TOKEN).build()
-    register_handlers(application)
-
-    logger.info("🚀 Bot starting...")
-    application.run_polling()
-
-
-if __name__ == '__main__':
-    main()
+Сколько у тебя текстов для анализа?
+    """
+    
+    keyboard = [
+        [InlineKeyboardButton("До 500 текстов", callback_data="quiz_q1_small")],
+        [InlineKeyboardButton("500 - 5,000 текстов", callback_data="quiz_q1_medium")],
+        [InlineKeyboardButton("Больше 5,000 текстов", callback_data="quiz_q1_large")],
+        [InlineKeyboardButton("🔙 Назад в меню", callback_data="back_to_start")]
+    ]
+    
+    await query.edit_message_text(
+        text,
+        parse_mode='HTML',
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
 
 
 async def handle_quiz_q1(update: Update, context: ContextTypes.DEFAULT_TYPE):
