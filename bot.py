@@ -786,9 +786,12 @@ async def cb_demo_select(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Выбор демо-датасета"""
     query = update.callback_query
     await query.answer()
-    logger.info(f"DEMO | User: {update.effective_user.id} | Selected: {query.data}")
+        # ДИАГНОСТИКА
+    logger.info(f"=== DEMO DEBUG ===")
+    logger.info(f"Callback data: {query.data}")
+    logger.info(f"After replace 'demo_': {query.data.replace('demo_', '')}")
+    logger.info(f"Available datasets: {list(DEMO_DATASETS.keys())}")
     
-    # Стало с маппингом:
     demo_key = query.data.replace("demo_", "")
     # Маппинг callback -> dataset key
     key_map = {
