@@ -183,7 +183,7 @@ class CategoryGenerator:
     
     def format_categories_for_display(self, categories: List[CategorySuggestion]) -> str:
         """Форматирование для показа пользователю"""
-        msg = f"🏷️ <b>Предложенные категории ({len(categories)}):</b>\n\n"
+        msg = f"<b>Предложенные категории ({len(categories)}):</b>\n\n"
         
         for i, cat in enumerate(categories, 1):
             emoji = ["1️⃣", "2️⃣", "3️⃣", "4️⃣", "5️⃣", "6️⃣", "7️⃣", "8️⃣", "9️⃣", "🔟"][i-1] if i <= 10 else "▪️"
@@ -198,12 +198,12 @@ class CategoryGenerator:
                 # Обрезаем длинные описания
                 if len(safe_desc) > 150:
                     safe_desc = safe_desc[:150] + "..."
-                msg += f"   <i>{safe_desc}</i>\n"
+                msg += f"   {safe_desc}\n"
             
             if cat.examples:
                 safe_examples = [html.escape(ex[:50]) for ex in cat.examples[:2]]
                 examples_str = "; ".join(safe_examples)
-                msg += f"   💬 Примеры: {examples_str}\n"
+                msg += f"   Примеры: {examples_str}\n"
             
             msg += "\n"
         

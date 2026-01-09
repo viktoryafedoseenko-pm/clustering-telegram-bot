@@ -629,11 +629,22 @@ async def start_classification(update: Update, context: ContextTypes.DEFAULT_TYP
         loop = asyncio.get_running_loop()
         
         def progress_callback(progress: float, current: int, total: int):
+            # Фиксируем прогресс (не больше 100%)
+            fixed_progress = min(progress, 1.0)
+            percent = int(fixed_progress * 100)
+            
+            # Не показываем 100% до полного завершения
+            if percent == 100 and current < total:
+                percent = 99
+            
+            # Обновляем каждые 10 записей или при завершении
             if current % 10 == 0 or current == total:
+                stage_text = f"Обработано: {current}/{total}"
                 asyncio.run_coroutine_threadsafe(
                     tracker.update(
-                        stage=f"🏷️ Классифицировано: {current}/{total}",
-                        percent=int(progress * 100)
+                        stage=stage_text, 
+                        percent=percent,
+                        details=f"Файл: {context.user_data.get('file_name', 'demo')}"
                     ),
                     loop
                 )
@@ -650,6 +661,8 @@ async def start_classification(update: Update, context: ContextTypes.DEFAULT_TYP
         result_df.to_csv(result_path, index=False, encoding='utf-8')
         context.user_data['result_path'] = result_path
         
+        await tracker.complete("Классификация завершена!")
+        await asyncio.sleep(0.5)  # небольшая задержка для красоты
         await progress_msg.delete()
         
         # Формируем распределение
@@ -786,31 +799,46 @@ async def cb_demo_select(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Выбор демо-датасета"""
     query = update.callback_query
     await query.answer()
-        # ДИАГНОСТИКА
-    logger.info(f"=== DEMO DEBUG ===")
-    logger.info(f"Callback data: {query.data}")
-    logger.info(f"After replace 'demo_': {query.data.replace('demo_', '')}")
-    logger.info(f"Available datasets: {list(DEMO_DATASETS.keys())}")
     
-    demo_key = query.data.replace("demo_", "")
-    # Маппинг callback -> dataset key
-    key_map = {
-        'reviews_app': 'reviews_app',
-        'support_ecommerce': 'support_ecommerce', 
-        'course_feedback': 'course_feedback',
-    }
-    demo_key = key_map.get(demo_key, demo_key)
-    logger.info(f"DEMO | Parsed key: {demo_key}")
+    # Получаем полный callback_data
+    callback_data = query.data
+    logger.info(f"DEMO | Callback received: {callback_data}")
     
+    # Извлекаем ключ (убираем 'demo_' префикс)
+    if callback_data.startswith("demo_"):
+        demo_key = callback_data[5:]  # Убираем "demo_"
+    else:
+        demo_key = callback_data
+    
+    logger.info(f"DEMO | Looking for key: {demo_key}")
+    
+    # Проверяем наличие в DEMO_DATASETS
     if demo_key not in DEMO_DATASETS:
-        logger.error(f"DEMO | Unknown demo key: {demo_key}")
-        await send_msg(update, MSG_E8, edit=True)
-        return
+        # Попробуем найти по альтернативным именам
+        logger.warning(f"DEMO | Key '{demo_key}' not found. Available: {list(DEMO_DATASETS.keys())}")
+        
+        # Маппинг для обратной совместимости
+        key_mapping = {
+            'reviews_app': 'reviews_app',        # Если кнопка была "demo_reviews_app"
+            'app_reviews': 'reviews_app',        # На всякий случай
+            'support_ecommerce': 'support_ecommerce',
+            'ecommerce': 'support_ecommerce',    # На всякий случай
+            'course_feedback': 'course_feedback',
+            'students': 'course_feedback',       # На всякий случай
+        }
+        
+        if demo_key in key_mapping:
+            demo_key = key_mapping[demo_key]
+            logger.info(f"DEMO | Mapped to: {demo_key}")
+        else:
+            logger.error(f"DEMO | Unknown demo key: {demo_key}")
+            await send_msg(update, MSG_E8, edit=True)
+            return
     
     dataset = DEMO_DATASETS[demo_key]
     context.user_data['demo_key'] = demo_key
-
-    logger.info(f"DEMO | Dataset selected: {dataset['name']}")
+    
+    logger.info(f"DEMO | Dataset found: {dataset['name']}")
     
     await send_msg(update, MSG_5_1_SELECTED, edit=True,
                   dataset_name=dataset['name'],
@@ -896,7 +924,7 @@ async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE):
 
 def register_handlers(app: Application):
     """Регистрация всех обработчиков"""
-    
+
     # Команды
     app.add_handler(CommandHandler("start", cmd_start))
     app.add_handler(CommandHandler("help", cmd_help))
@@ -936,9 +964,9 @@ def register_handlers(app: Application):
     
     # 5. Демо
     app.add_handler(CallbackQueryHandler(cb_demo_start, pattern="^demo_start$"))
-    app.add_handler(CallbackQueryHandler(cb_demo_select, pattern="^demo_app_reviews$"))
-    app.add_handler(CallbackQueryHandler(cb_demo_select, pattern="^demo_ecommerce$"))
-    app.add_handler(CallbackQueryHandler(cb_demo_select, pattern="^demo_students$"))
+    app.add_handler(CallbackQueryHandler(cb_demo_select, pattern="^demo_reviews_app$"))
+    app.add_handler(CallbackQueryHandler(cb_demo_select, pattern="^demo_support_ecommerce$"))
+    app.add_handler(CallbackQueryHandler(cb_demo_select, pattern="^demo_course_feedback$"))
     app.add_handler(CallbackQueryHandler(cb_demo_run, pattern="^demo_run$"))
     app.add_handler(CallbackQueryHandler(cb_demo_settings, pattern="^demo_settings$"))
     
